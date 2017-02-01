@@ -10,16 +10,20 @@ import UIKit
 import Contentful
 import Interstellar
 
+/**
+ * The Space Id and access_token for your Contentful space. Copy paste your space id,
+ * and your CDA API key (access token) to replace the variables below and see your data in the console.
+ */
+let SPACE_ID = "cfexampleapi"
+let ACCESS_TOKEN = "b4c0n73n7fu1"
+
 class ViewController: UIViewController {
 
     /**
      * We must initialize a Contentful.Client object to infterface with the Contentful CDA.
-     * In this case, it's an instance variable on our viewController. Copy paste your space id,
-     * and your CDA API key (access token) to replace the passed in variables below.
+     * In this case, it's an instance variable on our viewController.
      */
-    let client: Client = Client(spaceIdentifier: "cfexampleapi", accessToken: "b4c0n73n7fu1")
-
-    // MARK: UIViewController
+    let client: Client = Client(spaceIdentifier: SPACE_ID, accessToken: ACCESS_TOKEN)
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -38,9 +42,9 @@ class ViewController: UIViewController {
             // If you're going to update the UI...make sure to delegate back to the main thread.
             switch result {
             case .success(let space):
-                print("=================Printing space=================")
-                print("Fetched space with name \(space.name)")
-                print("==============Done Printing space===============")
+                print("==================Printing space==================")
+                print("Fetched space with the name \(space.name)")
+                print("===============Done Printing space================")
             case .error(let error):
                 self?.handle(error: error)
             }
@@ -50,7 +54,7 @@ class ViewController: UIViewController {
          * Similar to `fetchSpace` fetchEntries returns a Result, but this time containing a Contentful
          * Array of Entry objects.
          */
-        client.fetchEntries(matching: ["limit": 5]) { [weak self] (result: Result<Contentful.Array<Entry>>) in
+        client.fetchEntries(matching: ["limit": 100]) { [weak self] (result: Result<Contentful.Array<Entry>>) in
             switch result {
             case .success(let entries):
                 print("=================Printing Entries=================")
