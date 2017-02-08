@@ -27,7 +27,8 @@ class ViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-
+        view.backgroundColor = .white
+        addCheckConsoleLabel()
 
         /**
          * All of the Client methods to retrieve content from the API are prefixed with `fetch`
@@ -72,5 +73,21 @@ class ViewController: UIViewController {
 
     func handle(error: Error) {
         print("Uh oh, something went wrong. You can do what you want with this \(error)")
+    }
+
+    func addCheckConsoleLabel() {
+        let checkConsoleLabel = UILabel(frame: .zero)
+        view.addSubview(checkConsoleLabel)
+        checkConsoleLabel.translatesAutoresizingMaskIntoConstraints = false
+        checkConsoleLabel.numberOfLines = 0
+        checkConsoleLabel.lineBreakMode = .byWordWrapping
+        checkConsoleLabel.textAlignment = .center
+        checkConsoleLabel.text = "Check Xcode console for Contentful CDA Responses"
+        checkConsoleLabel.font = UIFont.systemFont(ofSize: 28.0, weight: UIFontWeightMedium)
+        checkConsoleLabel.sizeToFit()
+
+        let viewsDictionary = ["checkConsoleLabel": checkConsoleLabel]
+        view.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:|-15.0-[checkConsoleLabel]-15.0-|", options: [], metrics: nil, views: viewsDictionary))
+        view.addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|-50.0-[checkConsoleLabel]->=100.0-|", options: [], metrics: nil, views: viewsDictionary))
     }
 }
