@@ -3,6 +3,7 @@
 [![Build Status](https://travis-ci.org/JensRavens/Interstellar.svg)](https://travis-ci.org/JensRavens/Interstellar)
 [![CocoaPods Version](https://img.shields.io/cocoapods/v/Interstellar.svg)](https://cocoapods.org/pods/Interstellar)
 [![CocoaPods Plattforms](https://img.shields.io/cocoapods/p/Interstellar.svg)](https://cocoapods.org/pods/Interstellar)
+[![Carthage compatible](https://img.shields.io/badge/Carthage-compatible-4BC51D.svg?style=flat)](https://github.com/Carthage/Carthage)
 
 The simplest `Observable<T>` implementation for Functional Reactive Programming you will ever find.
 
@@ -15,7 +16,7 @@ The simplest `Observable<T>` implementation for Functional Reactive Programming 
 - [x] Lightweight, simple, cross plattform FRP
 - [x] Multithreading with GCD becomes a breeze
 - [x] Most of your methods will conform to the needed syntax anyway.
-- [x] Swift 3 compatibility
+- [x] Swift 3 and 4 compatibility
 - [x] Multithreading with GCD becomes a breeze via WarpDrive
 - [x] Supports Linux and `swift build`
 - [x] BYOR™-technology (Bring Your Own `Result<T>`)
@@ -224,7 +225,7 @@ github "JensRavens/Interstellar"
 
 ### Why use Interstellar instead of [insert your favorite FRP framework here]?
 
-Interstellar is meant to be lightweight. There are no UIKit bindings, no heavy constructs - just a simple `Obersable<T>`. Therefore it's easy to understand and portable (there is no dependency except Foundation).
+Interstellar is meant to be lightweight. There are no UIKit bindings, no heavy constructs - just a simple `Observable<T>`. Therefore it's easy to understand and portable (there is no dependency except Foundation).
 
 Also Interstellar is supporting BYOR (bring your own `Result<T>`). Due to its protocol based implementation you can use result types from other frameworks directly with Interstellar methods.
 
@@ -241,6 +242,7 @@ Interstellar is owned and maintained by [Jens Ravens](http://jensravens.de).
 - *1.3* WarpDrive has been merged into Interstellar. Also Interstellar is now divided into subspecs via cocoapods to make it easy to just select the needed components. The basic signal library is now "Interstellar/Core".
 - *1.4* Support `swift build` and the new Swift package manager, including support for Linux. Also removed deprecated bind methods.
 - *2* Introducing `Observable<T>`, the successor of Signal. Use the `observable` property on signals to migrate your code from `Signal<T>`. Also adding Linux support for Warpdrive and introduce BYOR™-technology (Bring Your Own `Result<T>`).
+- *2.1* Update to Swift 3.2 to make it compatible with Swift 4.
 
 ## License
 
