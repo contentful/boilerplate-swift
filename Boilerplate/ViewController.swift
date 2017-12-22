@@ -23,7 +23,7 @@ class ViewController: UIViewController {
      * We must initialize a Contentful.Client object to infterface with the Contentful CDA.
      * In this case, it's an instance variable on our viewController.
      */
-    let client: Client = Client(spaceIdentifier: SPACE_ID, accessToken: ACCESS_TOKEN)
+    let client: Client = Client(spaceId: SPACE_ID, accessToken: ACCESS_TOKEN)
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -55,12 +55,12 @@ class ViewController: UIViewController {
          * Similar to `fetchSpace` fetchEntries returns a Result, but this time containing a Contentful
          * Array of Entry objects.
          */
-        client.fetchEntries(matching: ["limit": 100]) { [weak self] (result: Result<Contentful.Array<Entry>>) in
+        client.fetchEntries(matching: Query.limit(to: 100)) { [weak self] (result: Result<Contentful.ArrayResponse<Entry>>) in
             switch result {
             case .success(let entries):
                 print("=================Printing Entries=================")
                 entries.items.forEach { entry in
-                    print(entry.identifier)
+                    print(entry.id)
                 }
                 print("==============Done Printing Entries===============")
             case .error(let error):
