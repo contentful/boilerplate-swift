@@ -13,14 +13,38 @@ import Foundation
 /// advantage of `Client` "fetch" methods that take `Query` types instead of constructing query dictionaries on your own.
 public struct QueryParameter {
 
+    /// The parameter for specifying the content type of returned entries.
     public static let contentType      = "content_type"
+
+    /// The parameter name for incoming links to an entry: See <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/links-to-entry>
+    public static let linksToEntry     = "links_to_entry"
+
+    /// The parameter name for incoming links to an asset: See <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/links-to-asset>
+    public static let linksToAsset     = "links_to_asset"
+
+    /// The [select operator](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/select-operator)
     public static let select           = "select"
+
+    /// The [order parameter](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/order)
     public static let order            = "order"
+
+    /// Limit the number of items allowed in a response. See [limit](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/limit).
     public static let limit            = "limit"
+
+    /// The offset to be used with `limit` for pagination. See [Skip](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/skip).
     public static let skip             = "skip"
+
+    /// The level depth of including resources to resolve. See [Links](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/links)
     public static let include          = "include"
+
+    /// The locale that you want to localize your responses to. See [Localization](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/localization)
     public static let locale           = "locale"
+
+    /// A query parameter to [filter assets by the mimetype](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/filtering-assets-by-mime-type)
+    /// of the referenced binary file
     public static let mimetypeGroup    = "mimetype_group"
+
+    /// Use this to pass in a query to search accross all text and symbol fields in your space. See [Full-text search](https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/full-text-search)
     public static let fullTextSearch   = "query"
 }
 
@@ -81,7 +105,7 @@ public class Ordering {
  conforms to ResourceQueryable in order to take advantage of the CodingKey fields available on your type.
  See: `ChainableQuery.order(by order: Ordering...)`
  */
-public class Ordered<EntryType>: Ordering where EntryType: ResourceQueryable {
+public class Ordered<EntryType>: Ordering where EntryType: FieldKeysQueryable {
 
     /**
      Initializer for creating a new Ordering operator.
@@ -90,21 +114,22 @@ public class Ordered<EntryType>: Ordering where EntryType: ResourceQueryable {
      - Parameter inReverse: Specifies if the ordering by the sys parameter should be reversed or not. Defaults to `false`.
      - Throws: Will throw an error if the keypaths specified in the ordering are not valid.
      */
-    public init(field: EntryType.Fields, inReverse: Bool = false) throws {
+    public init(field: EntryType.FieldKeys, inReverse: Bool = false) throws {
         try super.init("fields.\(field.stringValue)", inReverse: inReverse)
     }
 }
 
-private struct QueryConstants {
-    fileprivate static let maxLimit: UInt               = 1000
-    fileprivate static let maxSelectedProperties: UInt  = 99
-    fileprivate static let maxIncludes: UInt            = 10
+internal struct QueryConstants {
+    internal static let maxLimit: UInt               = 1000
+    internal static let maxSelectedProperties: UInt  = 99
+    internal static let maxIncludes: UInt            = 10
 }
 
 /// Use types that conform to QueryableRange to perform queries with the four Range operators
 /// See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/ranges>
 public protocol QueryableRange {
 
+    /// A string representation of a query value that can be used in an API query.
     var stringValue: String { get }
 }
 
@@ -116,6 +141,7 @@ extension Int: QueryableRange {
 }
 
 extension String: QueryableRange {
+
     public var stringValue: String {
         return self
     }
@@ -123,6 +149,7 @@ extension String: QueryableRange {
 
 extension Date: QueryableRange {
 
+    /// The ISO8601 string representation of the receiving Date object.
     public var stringValue: String {
         return self.iso8601String
     }
@@ -132,15 +159,21 @@ extension Date: QueryableRange {
  Small struct to store location coordinates. This is used in preferences over CoreLocation types to avoid
  extra linking requirements for the SDK.
  */
-@objc public class Location: NSObject, Decodable {
+@objc public class Location: NSObject, Decodable, NSCoding {
 
+    /// The latitude of this location coordinate.
     public let latitude: Double
+
+    /// The longitude of this location coordinate.
     public let longitude: Double
 
+    /// Initializer for a location object.
     public init(latitude: Double, longitude: Double) {
         self.latitude = latitude
         self.longitude = longitude
     }
+
+    // MARK: Decodable
 
     public required init(from decoder: Decoder) throws {
         let container   = try decoder.container(keyedBy: CodingKeys.self)
@@ -152,37 +185,69 @@ extension Date: QueryableRange {
         case latitude = "lat"
         case longitude = "lon"
     }
+
+    // MARK: NSCoding
+
+    /// Regquired initializer for NSCoding conformance.
+    @objc public required init?(coder aDecoder: NSCoder) {
+        self.latitude = aDecoder.decodeDouble(forKey: CodingKeys.latitude.rawValue)
+        self.longitude = aDecoder.decodeDouble(forKey: CodingKeys.longitude.rawValue)
+    }
+
+    /// Regquired encoding function for NSCoding conformance.
+    @objc public func encode(with aCoder: NSCoder) {
+        aCoder.encode(latitude, forKey: CodingKeys.latitude.rawValue)
+        aCoder.encode(longitude, forKey: CodingKeys.longitude.rawValue)
+    }
 }
 
 /// Use bounding boxes or bounding circles to perform queries on location-enabled content.
 /// See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/locations-in-a-bounding-object>
 public enum Bounds {
+    /// A bounding box, defined by bottom left and top right corners.
     case box(bottomLeft: Location, topRight: Location)
+    /// A circle defined by its center and radius.
     case circle(center: Location, radius: Double)
 }
 
-/// All the possible MIME types that are supported by Contentful. \
 //  Developer note: Cases in String backed Swift enums have a raw value equal to the case name.
 //  i.e. MimetypeGroup.attachement.rawValue = "attachment"
+/// All the possible MIME types that are supported by Contentful. \
 public enum MimetypeGroup: String {
+    /// The attachment mimetype.
     case attachment
+    /// The plaintext mimetype.
     case plaintext
+    /// The image mimetype.
     case image
+    /// The audio mimetype.
     case audio
+    /// The video mimetype.
     case video
+    /// The richtext mimetype.
     case richtext
+    /// The presentation mimetype.
     case presentation
+    /// The spreadsheet mimetype.
     case spreadsheet
+    /// The pdf document mimetype.
     case pdfdocument
+    /// The archive mimetype.
     case archive
+    /// The code mimetype.
     case code
+    /// The markup mimetype.
     case markup
 }
 
+/**
+ A base abtract type which holds the bare essentials shared by all query types in the SDK which enable
+ querying against content types, entries and assets.
+ */
 public protocol AbstractQuery: class {
 
-    // Unfortunately (compiler forced) required designated initializer so that default implementation of AbstractQuery
-    // can guarantee that an object is constructed before doing additional mutations in convenience initializers.
+    /// A compiler-forced, required, and designated initializer. Creates affordance that the default implementation
+    /// of AbstractQuery guarantees an object is constructed before doing additional mutations in convenience initializers.
     init()
 
     /// The parameters dictionary that are converted to `URLComponents` on the HTTP URL. Useful for debugging.
@@ -500,8 +565,9 @@ public extension ChainableQuery {
 }
 
 
-// Using a protocol rather than a base class enables us to implement factory methods that return Self
-// and are therefore instances of the subclass.
+/**
+ A base abtract type which holds methods and constructors for all valid queries against resource: i.e. Contentful entries and assets.
+ */
 public protocol AbstractResourceQuery: ChainableQuery {}
 public extension AbstractResourceQuery {
 
@@ -555,8 +621,8 @@ public extension AbstractResourceQuery {
 
      See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/select-operator>
      - Parameter fieldNames: An array of field names to include in the JSON response.
-     - Throws: Will throw an error if selections go more than 2 levels deep
-     ("fields.bestFriend.sys" is not valid), or if more than 99 properties are selected.
+     - Throws: Will throw an error if selections go more than 1 level deep within the fields container ("bestFriend.sys" is not
+     valid), or if more than 99 properties are selected.
      */
     public static func select(fieldsNamed fieldNames: [FieldName]) throws -> Self {
         let query = Self()
@@ -572,7 +638,7 @@ public extension AbstractResourceQuery {
      Example usage:
 
      ```
-     let query = try! Query().select(fieldsNamed: ["fields.bestFriend", "fields.color", "fields.name"])
+     let query = try! Query().select(fieldsNamed: ["bestFriend", "color", "name"])
      client.fetchEntries(with: query).observable.then { catsResponse in
          let cats = catsResponse.items
          // Do stuff with cats.
@@ -581,8 +647,8 @@ public extension AbstractResourceQuery {
 
      See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/select-operator>
      - Parameter fieldNames: An array of field names to include in the JSON response.
-     - Throws: Will throw an error if property names are not prefixed with `"fields."`, if selections go more than 2 levels deep
-     ("fields.bestFriend.sys" is not valid), or if more than 99 properties are selected.
+     - Throws: Will throw an error if selections go more than 1 level deep within the fields container ("bestFriend.sys" is not
+     valid), or if more than 99 properties are selected.
      - Returns: A reference to the receiving query to enable chaining.
      */
     @discardableResult public func select(fieldsNamed fieldNames: [FieldName]) throws -> Self {
@@ -600,7 +666,11 @@ public extension AbstractResourceQuery {
     }
 }
 
-
+/**
+ The base abstract type for querying Contentful entries. The contained operations in the default implementation
+ of this protocol can only be used when querying against the `/entries/ endpoint of the Content Delivery and Content Preview APIs.
+ See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters>
+ */
 public protocol EntryQuery: AbstractResourceQuery {}
 public extension EntryQuery {
     /**
@@ -683,9 +753,108 @@ public extension EntryQuery {
         self.parameters[filterParameterName] = operation.values
         return self
     }
+
+    /**
+     Static method creating a query that requires that an specific field of an entry
+     holds a reference to another specific entry.
+
+     Example usage:
+     ```
+     let query = Query.where(linkAtFieldNamed: "bestFriend",
+     onSourceContentTypeWithId: "cat",
+     hasValueAtKeyPath: "fields.name",
+     withTargetContentTypeId: "cat",
+     that: .matches("Happy Cat"))
+     ```
+     - Parameter linkingFieldName: The field name which holds a reference to a link.
+     - Parameter sourceContentTypeId: The content type identifier of the link source.
+     - Parameter targetId: The identifier of the entry or asset being linked to at the specified linking field.
+     - Returns: A newly initialized Query for searching on references.
+     */
+    public static func `where`(linkAtFieldNamed linkingFieldName: String,
+                               onSourceContentTypeWithId sourceContentTypeId: ContentTypeId,
+                               hasTargetId targetId: String) -> Self {
+        let query = Self()
+        query.where(linkAtFieldNamed: linkingFieldName,
+                    onSourceContentTypeWithId: sourceContentTypeId,
+                    hasTargetId: targetId)
+        return query
+    }
+
+    /**
+     Instance method creating a query that requires that an specific field of an entry
+     holds a reference to another specific entry.
+
+     Example usage:
+
+     - Parameter linkingFieldName: The field name which holds a reference to a link.
+     - Parameter sourceContentTypeId: The content type identifier of the link source.
+     - Parameter targetId: The identifier of the entry or asset being linked to at the specified linking field.
+
+     - Returns: A reference to the receiving query to enable chaining.
+     */
+    @discardableResult public func `where`(linkAtFieldNamed linkingFieldName: String,
+                                           onSourceContentTypeWithId sourceContentTypeId: ContentTypeId,
+                                           hasTargetId targetId: String) -> Self {
+        self.parameters[QueryParameter.contentType] = sourceContentTypeId
+        self.parameters["fields.\(linkingFieldName).sys.id"] = targetId
+
+        return self
+    }
+
+    /**
+     Static method for creating a query that will search for entries that have a field linking to
+     another entry with a specific id.
+
+     - Parameter entryId: The identifier of the entry which you want to find incoming links entries for.
+     - Returns: A newly initialized Query which will search for incoming links on a specific entry.
+     */
+    public static func `where`(linksToEntryWithId entryId: String) -> Self {
+        let query = Self()
+        query.where(linksToEntryWithId: entryId)
+        return query
+    }
+
+    /**
+     Instance method for creating a query that will search for entries that have a field linking to
+     another entry with a specific id.
+
+     - Parameter entryId: The identifier of the entry which you want to find incoming links for.
+     - Returns: A reference to the receiving query to enable chaining.
+     */
+    @discardableResult public func `where`(linksToEntryWithId entryId: String) -> Self {
+        self.parameters[QueryParameter.linksToEntry] = entryId
+        return self
+    }
+
+    /**
+     Static method for creating a query that will search for entries that have a field linking to
+     an asset with a specific id.
+
+     - Parameter assetId: The identifier of the asset which you want to find incoming links for.
+     - Returns: A newly initialized Query which will search for incoming links on a specific asset.
+     */
+    public static func `where`(linksToAssetWithId assetId: String) -> Self {
+        let query = Self()
+        query.where(linksToAssetWithId: assetId)
+        return query
+    }
+
+    /**
+     Static method for creating a query that will search for entries that have a field linking to
+     an asset with a specific id.
+
+     - Parameter assetId: The identifier of the asset which you want to find incoming links for.
+     - Returns: A reference to the receiving query to enable chaining.
+     */
+    @discardableResult public func `where`(linksToAssetWithId assetId: String) -> Self {
+        self.parameters[QueryParameter.linksToAsset] = assetId
+        return self
+    }
 }
-
-
+/**
+ A concrete implementation of AbstractResourceQuery which serves as the base class for both EntryQuery and AssetQuery.
+ */
 public class ResourceQuery: AbstractResourceQuery {
 
     /// The parameters dictionary that are converted to `URLComponents` (HTTP parameters/arguments) on the HTTP URL. Useful for debugging.
@@ -701,7 +870,6 @@ public class ResourceQuery: AbstractResourceQuery {
     internal init(parameters: [String: String] = [:]) {
         self.parameters = parameters
     }
-
 
     fileprivate static func validate(selectedKeyPaths: [String]) throws {
         for fieldKeyPath in selectedKeyPaths {

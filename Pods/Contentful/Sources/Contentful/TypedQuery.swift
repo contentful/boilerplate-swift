@@ -8,17 +8,15 @@
 
 import Foundation
 
-/// A protocol enabling strongly typed queries to the Contentful Delivery API via the SDK.
-public protocol ResourceQueryable {
-
-    /// The CodingKey representing the names of each of the fields for the corresponding content type.
-    /// These coding keys should be the same as those used when implementing Decodable.
-    associatedtype Fields: CodingKey
-}
 
 /// A concrete implementation of ChainableQuery which can be used to make queries on `/entries/`
 /// or `/entries`. All methods from ChainableQuery are available.
-public class Query: ResourceQuery, EntryQuery {}
+public class Query: ResourceQuery, EntryQuery {
+
+    public static var any: Query {
+        return Query()
+    }
+}
 
 /**
  An additional query to filter by the properties of linked objects when searching on references.
@@ -26,7 +24,7 @@ public class Query: ResourceQuery, EntryQuery {}
  and see the init<LinkType: EntryDecodable>(whereLinkAt fieldNameForLink: String, matches filterQuery: FilterQuery<LinkType>? = nil) methods
  on QueryOn for example usage.
  */
-public final class LinkQuery<EntryType>: AbstractQuery where EntryType: EntryDecodable & ResourceQueryable {
+public final class LinkQuery<EntryType>: AbstractQuery where EntryType: EntryDecodable & FieldKeysQueryable {
 
     /// The parameters dictionary that are converted to `URLComponents` (HTTP parameters/arguments) on the HTTP URL. Useful for debugging.
     public var parameters: [String: String] = [String: String]()
@@ -59,7 +57,7 @@ public final class LinkQuery<EntryType>: AbstractQuery where EntryType: EntryDec
      that you are performing your search on reference against.
      - Returns: A newly initialized QueryOn query.
      */
-    public static func `where`(field: EntryType.Fields, _ operation: Query.Operation) -> LinkQuery<EntryType> {
+    public static func `where`(field: EntryType.FieldKeys, _ operation: Query.Operation) -> LinkQuery<EntryType> {
         return LinkQuery<EntryType>.with(valueAtKeyPath: "fields.\(field.stringValue)", operation)
     }
 
@@ -85,7 +83,7 @@ public final class LinkQuery<EntryType>: AbstractQuery where EntryType: EntryDec
  Operations that are only available when querying `Entry`s on specific content types (i.e. content_type must be set)
  are available through this class.
  */
-public final class QueryOn<EntryType>: EntryQuery where EntryType: EntryDecodable & ResourceQueryable {
+public final class QueryOn<EntryType>: EntryQuery where EntryType: EntryDecodable & FieldKeysQueryable {
 
     /// The parameters dictionary that are converted to `URLComponents` (HTTP parameters/arguments) on the HTTP URL. Useful for debugging.
     public var parameters: [String: String] = [String: String]()
@@ -114,7 +112,7 @@ public final class QueryOn<EntryType>: EntryQuery where EntryType: EntryDecodabl
      that you are performing your select operation against.
      - Returns: A newly initialized QueryOn query.
      */
-    public static func `where`(field fieldsKey: EntryType.Fields, _ operation: Query.Operation) -> QueryOn<EntryType> {
+    public static func `where`(field fieldsKey: EntryType.FieldKeys, _ operation: Query.Operation) -> QueryOn<EntryType> {
         let query = QueryOn<EntryType>.where(valueAtKeyPath: "fields.\(fieldsKey.stringValue)", operation)
         return query
     }
@@ -139,7 +137,7 @@ public final class QueryOn<EntryType>: EntryQuery where EntryType: EntryDecodabl
      that you are performing your select operation against.
      - Returns: A reference to the receiving query to enable chaining.
      */
-    public func `where`(field fieldsKey: EntryType.Fields, _ operation: Query.Operation) -> QueryOn<EntryType> {
+    public func `where`(field fieldsKey: EntryType.FieldKeys, _ operation: Query.Operation) -> QueryOn<EntryType> {
         self.where(valueAtKeyPath: "fields.\(fieldsKey.stringValue)", operation)
         return self
     }
@@ -167,14 +165,14 @@ public final class QueryOn<EntryType>: EntryQuery where EntryType: EntryDecodabl
                              that you are performing your select operation against.
      - Returns: A newly initialized QueryOn query.
      */
-    public static func select(fieldsNamed fieldsKeys: [EntryType.Fields]) -> QueryOn<EntryType> {
+    public static func select(fieldsNamed fieldsKeys: [EntryType.FieldKeys]) -> QueryOn<EntryType> {
         let query = QueryOn<EntryType>()
         query.select(fieldsNamed: fieldsKeys)
         return query
     }
 
     /**
-     Static method for creating a new QueryOn with a select operation: an operation in which only
+     Instance method for creating a new QueryOn with a select operation: an operation in which only
      the fields specified in the fieldNames property will be returned in the JSON response. This variation for initializing guarantees correct query contruction
      by utilizing the Fields type associated with your type conforming to ResourceQueryable.
      The "sys" dictionary is always requested by the SDK.
@@ -198,14 +196,14 @@ public final class QueryOn<EntryType>: EntryQuery where EntryType: EntryDecodabl
      that you are performing your select operation against.
      - Returns: A reference to the receiving query to enable chaining.
      */
-    @discardableResult public func select(fieldsNamed fieldsKeys: [EntryType.Fields]) -> QueryOn<EntryType> {
-        let fieldPaths = fieldsKeys.map { "fields.\($0.stringValue)" }
+    @discardableResult public func select(fieldsNamed fieldsKeys: [EntryType.FieldKeys]) -> QueryOn<EntryType> {
+        let fieldPaths = fieldsKeys.map { $0.stringValue }
         try! self.select(fieldsNamed: fieldPaths)
         return self
     }
 
     /**
-     Convenience initalizer for performing searches where Linked objects at the specified linking field match the filtering query.
+     Static method for performing searches where Linked objects at the specified linking field match the filtering query.
      For instance, if you want to query all Entry's of type "cat" where cat's linked via the "bestFriend" field have names that match "Happy Cat"
      the code would look like the following:
 
@@ -221,19 +219,98 @@ public final class QueryOn<EntryType>: EntryQuery where EntryType: EntryDecodabl
      See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/search-on-references>
      - Parameter fieldNameForLink: The name of the property which contains a link to another Entry.
      - Parameter filterQuery: The optional filter query applied to the linked objects which are being searched.
-     set on the `Client` instance is used.
+     - Returns: A newly initialized QueryOn query.
      */
-    public static func `where`<LinkType>(linkAtField fieldsKey: EntryType.Fields, matches linkQuery: LinkQuery<LinkType>) -> QueryOn<EntryType> {
+    public static func `where`<LinkType>(linkAtField fieldsKey: EntryType.FieldKeys,
+                                         matches linkQuery: LinkQuery<LinkType>) -> QueryOn<EntryType> {
         let query = QueryOn<EntryType>()
+        query.where(linkAtField: fieldsKey, matches: linkQuery)
+        return query
+    }
 
-        query.parameters["fields.\(fieldsKey.stringValue).sys.contentType.sys.id"] = LinkType.contentTypeId
+    /**
+     Instance method for for performing searches where Linked objects at the specified linking field match the filtering query.
+     For instance, if you want to query all Entry's of type "cat" where cat's linked via the "bestFriend" field have names that match "Happy Cat"
+     the code would look like the following:
+
+     ```
+     let linkQuery = LinkQuery<Cat>.where(field: .name, .matches("Happy Cat"))
+     let query = QueryOn<Cat>(whereLinkAtField: .bestFriend, matches: linkQuery)
+
+     client.fetchMappedEntries(with: query).observable.then { catsWithHappyCatAsBestFriendResponse in
+     let catsWithHappyCatAsBestFriend = catsWithHappyCatAsBestFriendResponse.items
+     // Do stuff with catsWithHappyCatAsBestFriend
+     }
+     ```
+
+     See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/search-on-references>
+     - Parameter fieldNameForLink: The name of the property which contains a link to another Entry.
+     - Parameter filterQuery: The optional filter query applied to the linked objects which are being searched.
+     - Returns: A reference to the receiving query to enable chaining.
+     */
+    @discardableResult public func `where`<LinkType>(linkAtField fieldsKey: EntryType.FieldKeys,
+                                                     matches linkQuery: LinkQuery<LinkType>) -> QueryOn<EntryType> {
+
+        parameters["fields.\(fieldsKey.stringValue).sys.contentType.sys.id"] = LinkType.contentTypeId
 
         // If propertyName isn't unrwrapped, the string isn't constructed correctly for some reason.
         if let propertyName = linkQuery.propertyName {
             let filterParameterName = "fields.\(fieldsKey.stringValue).\(propertyName)\(linkQuery.operation.string)"
-            query.parameters[filterParameterName] = linkQuery.operation.values
+            parameters[filterParameterName] = linkQuery.operation.values
         }
+        return self
+    }
+
+    /**
+     Static method creating a query that requires that an specific field of an entry
+     holds a reference to another specific entry.
+
+     ```
+     let query = QueryOn<Cat>(whereLinkAtField: .bestFriend, hasTargetId: "nyancat")
+
+     client.fetchMappedEntries(with: query).observable.then { catsWithHappyCatAsBestFriendResponse in
+     let catsWithHappyCatAsBestFriend = catsWithHappyCatAsBestFriendResponse.items
+     // Do stuff with catsWithHappyCatAsBestFriend
+     }
+     ```
+
+     See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/search-on-references>
+     - Parameter fieldNameForLink: The name of the property which contains a link to another Entry.
+     - Parameter targetId: The identifier of the entry or asset being linked to at the specified linking field.
+     - Returns: A newly initialized QueryOn query.
+     */
+    public static func `where`(linkAtField fieldsKey: EntryType.FieldKeys,
+                               hasTargetId targetId: String) -> QueryOn<EntryType> {
+        let query = QueryOn<EntryType>()
+        query.where(linkAtField: fieldsKey, hasTargetId: targetId)
         return query
+    }
+
+    /**
+     Instance method creating a query that requires that an specific field of an entry
+     holds a reference to another specific entry.
+
+     ```
+     let query = QueryOn<Cat>(whereLinkAtField: .bestFriend, hasTargetId: "nyancat")
+
+     client.fetchMappedEntries(with: query).observable.then { catsWithHappyCatAsBestFriendResponse in
+     let catsWithHappyCatAsBestFriend = catsWithHappyCatAsBestFriendResponse.items
+     // Do stuff with catsWithHappyCatAsBestFriend
+     }
+     ```
+
+     See: <https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/search-parameters/search-on-references>
+     - Parameter fieldNameForLink: The name of the property which contains a link to another Entry.
+     - Parameter filterQuery: The optional filter query applied to the linked objects which are being searched.
+     - Returns: A reference to the receiving query to enable chaining.
+     */
+    @discardableResult public func `where`(linkAtField fieldsKey: EntryType.FieldKeys,
+                                           hasTargetId targetId: String) -> QueryOn<EntryType> {
+
+        let filterParameterName = "fields.\(fieldsKey.stringValue).sys.id"
+        parameters[filterParameterName] = targetId
+
+        return self
     }
 }
 
@@ -309,7 +386,7 @@ public final class AssetQuery: ResourceQuery {
      - Returns: A reference to the receiving query to enable chaining.
      */
     @discardableResult public func select(fields fieldsKeys: [Asset.Fields]) -> AssetQuery {
-        let fieldPaths = fieldsKeys.map { "fields.\($0.stringValue)" }
+        let fieldPaths = fieldsKeys.map { $0.stringValue }
         // Because we're guaranteed the keyPath doesn't have a "." in it, we can force try
         try! self.select(fieldsNamed: fieldPaths)
         return self

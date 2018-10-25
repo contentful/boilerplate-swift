@@ -10,8 +10,9 @@ import Foundation
 
 
 /// A Space represents a collection of Content Types, Assets and Entries in Contentful
-public class Space: Resource, Decodable {
+public class Space: Resource, FlatResource, Decodable {
 
+    /// System fields.
     public let sys: Sys
 
     /// Available Locales for this Space
@@ -20,27 +21,18 @@ public class Space: Resource, Decodable {
     /// The name of this Space
     public let name: String
 
-    /// Resource type ("Space")
+    /// Resource type ("Space").
     public var type: String {
         return sys.type
     }
 
-    /// Context for holding information about the fallback chain of locales for the Space.
-    public let localizationContext: LocalizationContext
-
-    // MARK: <ImmutableMappable>
+    // MARK: <Decodable>
 
     public required init(from decoder: Decoder) throws {
         let container       = try decoder.container(keyedBy: CodingKeys.self)
         sys                 = try container.decode(Sys.self, forKey: .sys)
         name                = try container.decode(String.self, forKey: .name)
         locales             = try container.decode([Locale].self, forKey: .locales)
-
-        guard let defaultLocale = locales.filter({ $0.isDefault }).first else {
-            throw SDKError.localeHandlingError(message: "Locale with default == true not found in Space!")
-        }
-        localizationContext = LocalizationContext(default: defaultLocale, locales: locales)
-
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -48,4 +40,9 @@ public class Space: Resource, Decodable {
         case name
         case locales
     }
+}
+
+extension Space: EndpointAccessible {
+
+    public static let endpoint = Endpoint.spaces
 }

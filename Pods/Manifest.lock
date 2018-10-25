@@ -1,20 +1,24 @@
 PODS:
-  - Contentful (1.0.0-beta4):
-    - Interstellar (~> 2.1.0)
-  - Interstellar (2.1.0):
-    - Interstellar/Core (= 2.1.0)
-    - Interstellar/Warpdrive (= 2.1.0)
-  - Interstellar/Core (2.1.0)
-  - Interstellar/Warpdrive (2.1.0):
-    - Interstellar/Core
+  - Contentful (4.0.0):
+    - Contentful/ImageOptions (= 4.0.0)
+  - Contentful/ImageOptions (4.0.0)
 
 DEPENDENCIES:
-  - Contentful (~> 1.0.0-beta4)
+  - "Contentful (from `git@github.com:contentful/contentful.swift`, branch `master`)"
+
+EXTERNAL SOURCES:
+  Contentful:
+    :branch: master
+    :git: "git@github.com:contentful/contentful.swift"
+
+CHECKOUT OPTIONS:
+  Contentful:
+    :commit: 697de08b5582b124c0524b71e10307178488d6d8
+    :git: "git@github.com:contentful/contentful.swift"
 
 SPEC CHECKSUMS:
-  Contentful: c803522177c8614074f5b98c6c926d8c1c77a3c9
-  Interstellar: fdc492e0866f49857a423d47a453b41d1e31f620
+  Contentful: 5384e2bd357dabfa442bc6465aadc525dfb688ab
 
-PODFILE CHECKSUM: 5ff92aced2fcd4dbc57d0cd18ac985b4968dce03
+PODFILE CHECKSUM: 133c32e5f8ce1742e4ee8caeed25f6ec2f646e91
 
-COCOAPODS: 1.3.1
+COCOAPODS: 1.6.0.beta.2
