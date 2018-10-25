@@ -14,40 +14,44 @@ public enum SDKError: Error {
     case invalidClient()
 
     /**
-     *  Thrown when receiving an invalid HTTP response
-     *
-     *  @param URLResponse? Optional URL response that has triggered the error
+     Thrown when receiving an invalid HTTP response.
+     - Parameter response: Optional URL response that has triggered the error.
      */
     case invalidHTTPResponse(response: URLResponse?)
 
     /**
-     *  Thrown when constructing an invalid URL
-     *
-     *  @param String The invalid URL string
+     Thrown when attempting to construct an invalid URL.
+     - Parameter string: The invalid URL string.
      */
     case invalidURL(string: String)
 
-    /// Thrown if the sync endpoint is called while being in preview mode
+    /// Thrown if the subsequent sync operations are executed in preview mode.
     case previewAPIDoesNotSupportSync()
 
+    /// Thrown if a resource returned in the multi-locale format does not have any value for the given
+    /// fallback chain.
+    case noValuePresent(fieldKey: CodingKey)
+
     /**
-     *  Thrown when receiving unparseable JSON responses
-     *
-     *  @param Data The data being parsed
-     *  @param String The error which occured during parsing
+     Thrown when receiving unparseable JSON responses.
+     - Parameter data: The data being parsed.
+     - Parameter errorMessage: The message from the error which occured during parsing.
      */
     case unparseableJSON(data: Data?, errorMessage: String)
 
-    /// Thrown when no entry is found matching a specific Entry id
+    /// Thrown when no entry is found matching a specified Entry id
     case noEntryFoundFor(id: String)
 
-    /// Thrown when the construction of a URL pointing to an underlying media file for an Asset is invalid.
-    case invalidImageParameters(String)
+    /// Thrown when no resource is found matching a specified id
+    case noResourceFoundFor(id: String)
 
     /// Thrown when a `Foundation.Data` object is unable to be transformed to a `UIImage` or an `NSImage` object.
     case unableToDecodeImageData
 
-    /// Thrown when the SDK has issues mapping responses with the necessary locale information.
+    /**
+     Thrown when the SDK has issues mapping responses with the necessary locale information.
+     - Parameter message: The message from the erorr which occured during parsing.
+    */
     case localeHandlingError(message: String)
 }
 
@@ -58,7 +62,7 @@ public enum QueryError: Error, CustomDebugStringConvertible {
         return message
     }
 
-    var message: String {
+    internal var message: String {
         switch self {
         case .invalidSelection(let fieldKeyPath):
             return "Selection for \(fieldKeyPath) is invalid. Make sure it has at most 1 '.' character in it."
@@ -89,10 +93,9 @@ public enum QueryError: Error, CustomDebugStringConvertible {
 /// Information regarding an error received from Contentful's API.
 public class APIError: Decodable, Error, CustomDebugStringConvertible {
 
-    // Format the output for printing from the debug console
     public var debugDescription: String {
         let statusCodeString = "HTTP status code " + String(statusCode)
-        let detailsStrings = details?.errors.flatMap({ $0.details }).joined(separator: "\n") ?? ""
+        let detailsStrings = details?.errors.compactMap({ $0.details }).joined(separator: "\n") ?? ""
         let debugDescription =
         """
         \(statusCodeString): \(message!)
@@ -110,6 +113,7 @@ public class APIError: Decodable, Error, CustomDebugStringConvertible {
         let type: String
     }
 
+    /// System fields.
     public let sys: Sys
 
     /// Human readable error message.
@@ -118,27 +122,37 @@ public class APIError: Decodable, Error, CustomDebugStringConvertible {
     /// The identifier of the request, can be useful when making support requests.
     public let requestId: String!
 
-    // The HTTP status code.
-    internal var statusCode: Int!
+    /// The HTTP status code.
+    public var statusCode: Int!
 
-    internal let details: Details?
+    /// More details about the error.
+    public let details: Details?
 
-    internal struct Details: Decodable {
+    /// A lightweight struct describing other details about the error.
+    public struct Details: Decodable {
 
-        internal let errors: [Details.Error]
+        /// All the errors, enumerated.
+        public let errors: [Details.Error]
 
-        internal struct Error: Decodable {
-            internal let name: String
-            internal let path: [String]
-            internal let details: String
+        /// All the errors, enumerated.
+        public struct Error: Decodable {
+            /// The `name` property of the error.
+            public let name: String
+            /// The `path` property of the error.
+            public let path: [String]
+            /// The `details` property of the error.
+            public let details: String?
         }
     }
 
-    public var id: String? {
+    /// A psuedo identifier for the error returned by the API(s).
+    /// "BadRequest", "InvalidQuery" and "InvalidEntry" are all examples.
+    public var id: String {
         return sys.id
     }
 
-    public var type: String? {
+    /// Resource type ("Error").
+    public var type: String {
         return sys.type
     }
 
@@ -190,7 +204,7 @@ public final class RateLimitError: APIError {
      */
     public internal(set) var timeBeforeLimitReset: Int?
 
-    // Format the output for printing from the debug console
+    /// A textual representation of this instance, suitable for debugging.
     override public var debugDescription: String {
         let debugDescription = super.debugDescription
         let timeInfoString = ( timeBeforeLimitReset == nil ? "" : "Wait " + String(timeBeforeLimitReset!)) + " seconds before making more requests."

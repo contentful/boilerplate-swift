@@ -8,7 +8,6 @@
 
 import UIKit
 import Contentful
-import Interstellar
 
 /**
  * The Space Id and access_token for your Contentful space. Copy paste your space id,
@@ -55,7 +54,7 @@ class ViewController: UIViewController {
          * Similar to `fetchSpace` fetchEntries returns a Result, but this time containing a Contentful
          * Array of Entry objects.
          */
-        client.fetchEntries(matching: Query.limit(to: 100)) { [weak self] (result: Result<Contentful.ArrayResponse<Entry>>) in
+        client.fetchArray(of: Entry.self, matching: Query.limit(to: 100)) { [weak self] (result: Result<ArrayResponse<Entry>>) in
             switch result {
             case .success(let entries):
                 print("=================Printing Entries=================")
@@ -83,7 +82,7 @@ class ViewController: UIViewController {
         checkConsoleLabel.lineBreakMode = .byWordWrapping
         checkConsoleLabel.textAlignment = .center
         checkConsoleLabel.text = "Check Xcode console for Contentful CDA Responses"
-        checkConsoleLabel.font = UIFont.systemFont(ofSize: 28.0, weight: UIFontWeightMedium)
+        checkConsoleLabel.font = UIFont.systemFont(ofSize: 28.0, weight: .medium)
         checkConsoleLabel.sizeToFit()
 
         let viewsDictionary = ["checkConsoleLabel": checkConsoleLabel]

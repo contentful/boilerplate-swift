@@ -8,9 +8,12 @@
 
 import Foundation
 
-public enum Defaults {
-    public static let cdaHost = "cdn.contentful.com"
-    public static let previewHost = "preview.contentful.com"
+/// Some default values that the SDK uses.
+public struct Host {
+    /// The path for the Contentful Delivery API.
+    public static let delivery = "cdn.contentful.com"
+    /// The path for the Contentful Preview API.
+    public static let preview = "preview.contentful.com"
 }
 
 /**
@@ -26,30 +29,21 @@ public protocol Integration {
     var version: String { get }
 }
 
-/**
- Conform to this protocol to directly receive raw JSON `Data` from the Contentful API via delegate methods.
- */
-public protocol DataDelegate {
-
-    /// Implement this method to directly handle data from the server and bypass the SDK's object mapping system.
-    func handleDataFetchedAtURL(_ data: Data, url: URL)
-}
-
 /// ClientConfiguration parameters for a client instance
 public struct ClientConfiguration {
 
+    /// The default instance of ClientConfiguration which interfaces with the Content Delivery API.
     public static let `default` = ClientConfiguration()
 
-    /// Whether or not to use the preview mode when accessing Contentful, requires a preview token
-    public var previewMode = false
-    /// Whether or not to automatically rate limit requests, defaults to `false`
-    public var rateLimiting = false
     /// Whether or not to use HTTPS connections, defaults to `true`
     public var secure = true
-    /// The server to use for performing requests, defaults to `cdn.contentful.com`
-    public var server = Defaults.cdaHost
-    /// The delegate which will receive messages containing the raw JSON data fetched at a specified URL.
-    public var dataDelegate: DataDelegate?
+
+    /// An optional configuration to override the date decoding strategy that is provided by the the SDK.
+    public var dateDecodingStrategy: JSONDecoder.DateDecodingStrategy?
+
+    /// An optional configuration to override the TimeZone the SDk will use to serialize Date instances. The SDK will
+    /// use a TimeZone with 0 seconds offset from GMT if this configuration is omitted.
+    public var timeZone: TimeZone?
 
     /// Computed version of the user agent, including OS name and version
     internal func userAgentString(with integration: Integration?) -> String {
@@ -82,7 +76,7 @@ public struct ClientConfiguration {
     }
 
     private func platformVersionString() -> String? {
-        var swiftVersionString: String? = nil
+        var swiftVersionString: String?
 
         // The project is only compatible with swift >=4.0
         #if swift(>=4.0)
@@ -129,7 +123,6 @@ public struct ClientConfiguration {
         }()
         return osName
     }
-
 
     private func sdkVersionString() -> String {
         guard

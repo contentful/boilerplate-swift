@@ -6,6 +6,7 @@
 //  Copyright © 2015 Contentful GmbH. All rights reserved.
 //
 
+/// An alias for String representing the id for a field.
 public typealias FieldName = String
 
 /// The possible Field types in Contentful
@@ -36,11 +37,11 @@ public enum FieldType: String, Decodable {
     case text                           = "Text"
     /// An unknown kind of value
     case none                           = "None"
+    /// The structured text field type.
+    case structuredText                 = "StructuredText"
 }
 
-/// A Field describes a single value inside an Entry
-// Hitting the /content_types endpoint will return a JSON field "fields" that
-// maps to an array where each element has the following structure.
+/// A Field describes a single value inside an Entry.
 public struct Field: Decodable {
     /// The unique identifier of this Field
     public let id: String
@@ -57,9 +58,11 @@ public struct Field: Decodable {
     /// The type of this Field
     public let type: FieldType
 
-    /// The item type of this Field (a subtype if `type` is `Array` or `Link`)
-    // For `Array`s, itemType is inferred via items.type. 
-    // For `Link`s, itemType is inferred via "linkType"
+    /**
+     The item type of this Field (a subtype if `type` is `Array` or `Link`)
+     For `Array`s, itemType is inferred via items.type.
+     For `Link`s, itemType is inferred via "linkType".
+     */
     public let itemType: FieldType?
 
     public init(from decoder: Decoder) throws {
@@ -74,7 +77,6 @@ public struct Field: Decodable {
 
         var itemTypeString: String?
 
-
         if type == FieldType.array {
             if let items = try container.decodeIfPresent([String: Any].self, forKey: .items) {
                 itemTypeString = items["type"] as? String
@@ -87,7 +89,6 @@ public struct Field: Decodable {
         }
         self.itemType = FieldType(rawValue: itemTypeString ?? FieldType.none.rawValue) ?? .none
     }
-
 
     private enum CodingKeys: String, CodingKey {
         case id, name, disabled, localized, required

@@ -8,28 +8,30 @@
 
 import Foundation
 
-public extension String {
+/// A simple protocol to bridge `Contentful.Asset` and other formats for storing asset information.
+public protocol AssetProtocol: FlatResource {
 
-    /**
-     Will make a `URL` from the current `String` instance if possible.
-     */
-    public func url() throws -> URL {
-        guard let url = URL(string: self) else { throw SDKError.invalidURL(string: self) }
-        return url
-    }
+    /// String representation for the URL of the media file associated with this asset.
+    var urlString: String? { get }
 }
 
+/// Classes conforming to this protocol can be decoded during JSON deserialization as reprsentations
+/// of Contentful assets. 
+public protocol AssetDecodable: AssetProtocol, Decodable {}
+
 /// An asset represents a media file in Contentful.
-public class Asset: LocalizableResource, ResourceQueryable {
+public class Asset: LocalizableResource, AssetDecodable {
 
     /// The key paths for member fields of an Asset
     public enum Fields: String, CodingKey {
+        /// Title description and file keys.
         case title, description, file
     }
 
     /// The URL for the underlying media file. Returns nil if the url was omitted from the response (i.e. `select` operation in query)
     /// or if the underlying media file is still processing with Contentful.
     public var url: URL? {
+
         guard let url = file?.url else { return nil }
         return url
     }
@@ -43,21 +45,40 @@ public class Asset: LocalizableResource, ResourceQueryable {
 
     /// The title of the asset. Optional for compatibility with `select` operator queries.
     public var title: String? {
-        return localizedString(path: "title")
+        return fields["title"] as? String
     }
 
     /// Description of the asset. Optional for compatibility with `select` operator queries.
     public var description: String? {
-        return localizedString(path: "description")
+        return fields["description"] as? String
     }
 
     /// Metadata describing the file associated with the asset. Optional for compatibility with `select` operator queries.
     public var file: FileMetadata? {
-        let localizableValue = localizableFields["file"]
-        let value = localizableValue?[currentlySelectedLocale.code] as? FileMetadata
-        return value
+        return fields["file"] as? FileMetadata
     }
+}
 
+public extension AssetProtocol {
+    /**
+     The URL for the underlying media file with additional options for server side manipulations
+     such as format changes, resizing, cropping, and focusing on different areas including on faces,
+     among others.
+
+     - Parameter imageOptions: An array of `ImageOption` that will be used for server side manipulations.
+     - Throws: Will throw SDKError if the SDK is unable to generate a valid URL with the desired ImageOptions.
+     */
+    public func url(with imageOptions: [ImageOption] = []) throws -> URL {
+        guard let url = try urlString?.url(with: imageOptions) else {
+            throw SDKError.invalidURL(string: urlString ?? "No url string is stored for Asset: \(id)")
+        }
+        return url
+    }
+}
+
+extension Asset {
+
+    /// Metadata describing underlying media file.
     public struct FileMetadata: Decodable {
 
         /// Original filename of the file.
@@ -73,6 +94,7 @@ public class Asset: LocalizableResource, ResourceQueryable {
         /// If the media file is still being processed, as the final stage of uploading to your space, this property will be nil.
         public let url: URL?
 
+        /// The size and dimensions of the underlying media file if it is an image.
         public struct Details: Decodable {
             /// The size of the file in bytes.
             public let size: Int
@@ -80,27 +102,30 @@ public class Asset: LocalizableResource, ResourceQueryable {
             /// Additional information describing the image the asset references.
             public let imageInfo: ImageInfo?
 
+            /// A lightweight struct to hold the dimensions information for the this file, if it is an image type.
             public struct ImageInfo: Decodable {
+                /// The width of the image.
                 public let width: Double
+                /// The height of the image.
                 public let height: Double
-                
+
                 public init(from decoder: Decoder) throws {
                     let container = try decoder.container(keyedBy: CodingKeys.self)
                     width         = try container.decode(Double.self, forKey: .width)
                     height        = try container.decode(Double.self, forKey: .height)
                 }
-                
+
                 private enum CodingKeys: String, CodingKey {
                     case width, height
                 }
             }
-            
+
             public init(from decoder: Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 size          = try container.decode(Int.self, forKey: .size)
-                imageInfo     = try container.decode(ImageInfo.self, forKey: .image)
+                imageInfo     = try container.decodeIfPresent(ImageInfo.self, forKey: .image)
             }
-            
+
             private enum CodingKeys: String, CodingKey {
                 case size, image
             }
@@ -123,12 +148,15 @@ public class Asset: LocalizableResource, ResourceQueryable {
             case fileName, contentType, url, details
         }
     }
+}
 
-    // MARK: Private
+extension Asset: EndpointAccessible {
 
-    private func localizedString(path: String) -> String? {
-        let localizableValue = localizableFields[path]
-        let value = localizableValue?[currentlySelectedLocale.code] as? String
-        return value
-    }
+    public static let endpoint = Endpoint.assets
+}
+
+extension Asset: ResourceQueryable {
+
+    /// The QueryType for an Asset is AssetQuery
+    public typealias QueryType = AssetQuery
 }

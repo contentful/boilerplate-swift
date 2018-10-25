@@ -15,19 +15,23 @@ import CoreGraphics
     import Cocoa
 #endif
 
+public extension String {
 
-public extension Asset {
     /**
-     The URL for the underlying media file with additional options for server side manipulations
-     such as format changes, resizing, cropping, and focusing on different areas including on faces,
-     among others.
-
-     - Parameter imageOptions: An array of `ImageOption` that will be used for server side manipulations.
-     - Throws: Will throw SDKError if the SDK is unable to generate a valid URL with the desired ImageOptions.
+     Will make a `URL` from the current `String` instance if possible.
      */
-    public func url(with imageOptions: [ImageOption] = []) throws -> URL {
-        guard let url = try urlString?.url(with: imageOptions) else {
-            throw SDKError.invalidURL(string: urlString ?? "No url string is stored for Asset: \(sys.id)")
+    internal func toURL() throws -> URL {
+        guard var urlComponents = URLComponents(string: self) else {
+            throw ImageOptionError(message: "Invalid URL String: \(self)")
+        }
+
+        // Append https scheme if not present.
+        if urlComponents.scheme == nil {
+            urlComponents.scheme = "https"
+        }
+
+        guard let url = urlComponents.url else {
+            throw ImageOptionError(message: "Invalid URL String: \(self)")
         }
         return url
     }
@@ -41,9 +45,9 @@ public extension String {
      among others.
 
      - Parameter imageOptions: An array of `ImageOption` that will be used for server side manipulations.
-     - Throws: Will throw SDKError if the SDK is unable to generate a valid URL with the desired ImageOptions.
+     - Throws: Will throw an `ImageQueryError` if the SDK is unable to generate a valid URL with the desired ImageOptions.
      */
-    public func url(with imageOptions: [ImageOption] = []) throws -> URL {
+    public func url(with imageOptions: [ImageOption]) throws -> URL {
 
         // Check that there are no two image options that specifiy the same query parameter.
         // https://stackoverflow.com/a/27624476/4068264z
@@ -51,16 +55,16 @@ public extension String {
         // and unique'ify the elements in the array.
         let uniqueImageOptions = Array(Set<ImageOption>(imageOptions))
         guard uniqueImageOptions.count == imageOptions.count else {
-            throw SDKError.invalidImageParameters("Cannot specify two instances of ImageOption of the same case."
+            throw ImageOptionError(message: "Cannot specify two instances of ImageOption of the same case."
                 + "i.e. `[.formatAs(.png), .formatAs(.jpg(withQuality: .unspecified)]` is invalid.")
         }
         guard imageOptions.count > 0 else {
-            return try url()
+            return try toURL()
         }
 
-        let urlString = try url().absoluteString
+        let urlString = try toURL().absoluteString
         guard var urlComponents = URLComponents(string: urlString) else {
-            throw SDKError.invalidURL(string: urlString)
+            throw ImageOptionError(message: "The url string is not valid: \(urlString)")
         }
 
         urlComponents.queryItems = try imageOptions.flatMap { option in
@@ -68,13 +72,20 @@ public extension String {
         }
 
         guard let url = urlComponents.url else {
-            throw SDKError.invalidURL(string: urlString)
+            let message = """
+            The SDK was unable to generate a valid URL for the given ImageOptions.
+            Please contact the maintainer on Github with a copy of the query \(urlString)
+            """
+            throw ImageOptionError(message: message)
         }
         return url
     }
 }
+/**
+ An enum-based API for specifying retrieval and server-side manipulation of images referenced by Contentful assets.
 
-
+ See [Images API Reference](https://www.contentful.com/developers/docs/references/images-api/)
+ */
 public enum ImageOption: Equatable, Hashable {
 
     /// Specify the height of the image in pixels to be returned from the API. Valid ranges for height are between 0 and 4000.
@@ -101,7 +112,7 @@ public enum ImageOption: Equatable, Hashable {
             return [URLQueryItem(name: ImageParameters.width, value: String(width))]
 
         case .width, .height:
-            throw SDKError.invalidImageParameters("The specified width or height parameters are not within the acceptable range")
+            throw ImageOptionError(message: "The specified width or height parameters are not within the acceptable range")
 
         case .formatAs(let format):
             return try format.urlQueryItems()
@@ -128,8 +139,7 @@ public enum ImageOption: Equatable, Hashable {
     }
 }
 
-// MARK: <Equatable>
-
+/// Equatable implementation for `ImageOption`
 public func == (lhs: ImageOption, rhs: ImageOption) -> Bool {
     // We don't need to check associated values, we only implement equatable to validate that
     // two ImageOptions of the same case can't be used in one request.
@@ -150,7 +160,7 @@ public func == (lhs: ImageOption, rhs: ImageOption) -> Bool {
 }
 
 /**
- Quality options for JPG images to be used when specifying jpg as the desired image format.
+ Quality options for JPG images to be used when specifying `.jpg` as the desired image format.
  Example usage
  
  ```
@@ -175,15 +185,40 @@ public enum JPGQuality {
             return nil
         case .asPercent(let quality):
             if quality > 100 {
-                throw SDKError.invalidImageParameters("JPG quality must be between 0 and 100 (inclusive).")
+                throw ImageOptionError(message: "JPG quality must be between 0 and 100 (inclusive).")
             }
             return URLQueryItem(name: ImageParameters.quality, value: String(quality))
         case .progressive:
-            return URLQueryItem(name: ImageParameters.progressiveJPG, value: "progressive")
+            return URLQueryItem(name: ImageParameters.formatFlag, value: "progressive")
         }
     }
 }
 
+/**
+ Quality options for PNG images to be used when specifying `.png` as the desired image format.
+ Example usage
+
+ ```
+ let imageOptions = [.formatAs(.png(bits: .standard))]
+ ```
+ */
+public enum PngBits {
+
+    /// Specify that the PNG should be represented with standard bit-depth.
+    case standard
+
+    /// Specify that the PNG should be represented with only 8 bits.
+    case eight
+
+    fileprivate func urlQueryItem() -> URLQueryItem? {
+        switch self {
+        case .standard:
+            return nil
+        case .eight:
+            return URLQueryItem(name: ImageParameters.formatFlag, value: "png8")
+        }
+    }
+}
 
 /**
  Use `Format` to specify the image file formats supported by Contentful's Images API.
@@ -200,7 +235,7 @@ public enum Format: URLImageQueryExtendable {
     case jpg(withQuality: JPGQuality)
 
     /// Specify that the API should return the image as a png.
-    case png
+    case png(bits: PngBits)
 
     /// Specify that the API should return the image as a webp file.
     case webp
@@ -217,6 +252,8 @@ public enum Format: URLImageQueryExtendable {
         switch self {
         case .jpg(let quality):
             return try quality.urlQueryItem()
+        case .png(let bits):
+            return bits.urlQueryItem()
         default:
             return nil
         }
@@ -230,15 +267,25 @@ public enum Format: URLImageQueryExtendable {
  for more information.
  */
 public enum Focus: String {
+    /// Focus on the top of the image.
     case top
+    /// Focus on the bottom of the image.
     case bottom
+    /// Focus on the left of the image.
     case left
+    /// Focus on the right of the image.
     case right
+    /// Focus on the top left of the image.
     case topLeft            = "top_left"
+    /// Focus on the top right of the image.
     case topRight           = "top_right"
+    /// Focus on the bottom left of the image.
     case bottomLeft         = "bottom_left"
+    /// Focus on the bottom right of the image.
     case bottomRight        = "bottom_right"
+    /// Focus on a face in the image, if detected.
     case face
+    /// Focus on a collection of faces in the image, if detected.
     case faces
 }
 
@@ -251,8 +298,12 @@ public enum Focus: String {
 public enum Fit: URLImageQueryExtendable {
 
     #if os(iOS) || os(tvOS) || os(watchOS)
+    /// If building for iOS, tvOS, or watchOS, `Color` aliases to `UIColor`. If building for macOS
+    /// `Color` aliases to `NSColor`
     public typealias Color = UIColor
     #else
+    /// If building for iOS, tvOS, or watchOS, `Color` aliases to `UIColor`. If building for macOS
+    /// `Color` aliases to `NSColor`
     public typealias Color = NSColor
     #endif
 
@@ -262,9 +313,13 @@ public enum Fit: URLImageQueryExtendable {
      an error will be thrown.
      */
     case pad(withBackgroundColor: Color?)
+    /// Specify that the image should be cropped, with an optional focus parameter.
     case crop(focusingOn: Focus?)
+    /// Crop to the specified dimensions; if the original image is smaller than those specified, the image will be upscaled.
     case fill(focusingOn: Focus?)
+    /// Creates a thumbnail with the specified focus.
     case thumb(focusingOn: Focus?)
+    /// Scale the image regardless of the original aspect ratio.
     case scale
 
     // Enums that have cases with associated values in swift can't be backed by
@@ -305,6 +360,14 @@ public enum Fit: URLImageQueryExtendable {
     }
 }
 
+public struct ImageOptionError: Error, CustomDebugStringConvertible {
+
+    let message: String
+
+    public var debugDescription: String {
+        return message
+    }
+}
 
 // MARK: - Private
 
@@ -342,8 +405,8 @@ private struct ImageParameters {
     static let backgroundColor  = "bg"
     static let fit              = "fit"
     static let format           = "fm"
+    static let formatFlag       = "fl"
     static let quality          = "q"
-    static let progressiveJPG   = "fl"
 }
 
 

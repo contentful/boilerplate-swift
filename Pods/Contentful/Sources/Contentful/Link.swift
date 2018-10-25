@@ -15,6 +15,7 @@ import Foundation
 */
 public enum Link: Decodable {
 
+    /// The system properties which describe the link.
     public struct Sys: Decodable {
 
         /// The identifier of the linked resource
@@ -26,7 +27,6 @@ public enum Link: Decodable {
         /// The content type identifier for the linked resource.
         public let type: String
     }
-
 
     /// The Link points to an `Asset`
     case asset(Asset)
@@ -62,6 +62,7 @@ public enum Link: Decodable {
         }
     }
 
+    /// The system properties which describe the link.
     public var sys: Link.Sys {
         switch self {
         case .unresolved(let sys):

@@ -8,17 +8,40 @@
 
 import Foundation
 
+/**
+ Classes conforming to this protocol can be passed into your Client instance so that fetch methods
+ asynchronously returning MappedCollection can be used and classes of your own definition can be returned.
+
+ It's important to note that there is no special handling of locales so if using the locale=* query parameter,
+ you will need to implement the special handing in your `init(from decoder: Decoder) throws` initializer for your class.
+
+ Example:
+
+ ```
+ func fetchMappedEntries(with query: Query<Cat>,
+ then completion: @escaping ResultsHandler<MappedArrayResponse<Cat>>) -> URLSessionDataTask?
+ ```
+ */
+public protocol EntryDecodable: FlatResource, Decodable, EndpointAccessible {
+    /// The identifier of the Contentful content type that will map to this type of `EntryPersistable`
+    static var contentTypeId: ContentTypeId { get }
+}
+
+public extension EndpointAccessible where Self: EntryDecodable {
+    static var endpoint: Endpoint {
+        return Endpoint.entries
+    }
+}
+
 /// An Entry represents a typed collection of data in Contentful
 public class Entry: LocalizableResource {
 
-    public var localeCode: String {
-        return sys.locale!
-    }
-
+    /// A convenience subscript operator to access the fields dictionary directly and return a String?
     public subscript(key: String) -> String? {
         return fields[key] as? String
     }
 
+    /// A convenience subscript operator to access the fields dictionary directly and return an Int?
     public subscript(key: String) -> Int? {
         return fields[key] as? Int
     }
@@ -56,10 +79,36 @@ public class Entry: LocalizableResource {
                     let resolvedLinks = alreadyResolvedLinks + newlyResolvedLinks
                     resolvedLocalizableFieldMap[localeCode] = resolvedLinks
                 }
+
+                // Resolve links for structured text fields.
+                if let value = fieldValueForLocaleCode as? Document {
+                    let embeddedEntryNodes: [Node] = value.content.map { node in
+                        if let blockNode = node as? EmbeddedEntryBlock {
+                            let resolvedTarget = blockNode.data.target.resolve(against: includedEntries, and: includedAssets)
+                            let newData = EmbeddedResourceData(resolvedTarget: resolvedTarget)
+                            let newBlockNode = EmbeddedEntryBlock(resolvedData: newData)
+                            return newBlockNode
+                        }
+                        return node
+                    }
+                    let newDocument = Document(content: embeddedEntryNodes)
+                    resolvedLocalizableFieldMap[localeCode] = newDocument
+                }
             }
             localizableFields[fieldName] = resolvedLocalizableFieldMap
         }
 
         self.localizableFields = localizableFields
     }
+}
+
+extension Entry: EndpointAccessible {
+
+    public static let endpoint = Endpoint.entries
+}
+
+extension Entry: ResourceQueryable {
+
+    /// The QueryType for an EntryQuery is Query.
+    public typealias QueryType = Query
 }
