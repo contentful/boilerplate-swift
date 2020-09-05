@@ -6,7 +6,7 @@ use_frameworks!
 target 'Boilerplate' do
   platform :ios, '10.0'
   
-  pod 'Contentful', :git => 'git@github.com:contentful/contentful.swift', :branch => 'master'
+  pod 'Contentful'
 end
 
 # Use the commented examples below as a boilerplate
