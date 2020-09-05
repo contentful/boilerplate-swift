@@ -1,24 +1,18 @@
 PODS:
-  - Contentful (4.0.0):
-    - Contentful/ImageOptions (= 4.0.0)
-  - Contentful/ImageOptions (4.0.0)
+  - Contentful (5.2.0):
+    - Contentful/ImageOptions (= 5.2.0)
+  - Contentful/ImageOptions (5.2.0)
 
 DEPENDENCIES:
-  - "Contentful (from `git@github.com:contentful/contentful.swift`, branch `master`)"
+  - Contentful
 
-EXTERNAL SOURCES:
-  Contentful:
-    :branch: master
-    :git: "git@github.com:contentful/contentful.swift"
-
-CHECKOUT OPTIONS:
-  Contentful:
-    :commit: 697de08b5582b124c0524b71e10307178488d6d8
-    :git: "git@github.com:contentful/contentful.swift"
+SPEC REPOS:
+  trunk:
+    - Contentful
 
 SPEC CHECKSUMS:
-  Contentful: 5384e2bd357dabfa442bc6465aadc525dfb688ab
+  Contentful: 4973186d957d01c4868107fa4bda2149cd5ea107
 
-PODFILE CHECKSUM: 133c32e5f8ce1742e4ee8caeed25f6ec2f646e91
+PODFILE CHECKSUM: e9774ab0824519ec651489e000d73132c98adbed
 
-COCOAPODS: 1.6.0.beta.2
+COCOAPODS: 1.9.3

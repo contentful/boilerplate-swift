@@ -10,11 +10,12 @@ import Foundation
 
 /// The completion callback for an API request with a `Result<T>` containing the requested object of
 /// type `T` on success, or an error if the request was unsuccessful.
-public typealias ResultsHandler<T> = (_ result: Result<T>) -> Void
+public typealias ResultsHandler<T> = (_ result: Result<T, Error>) -> Void
 
-/// Client object for performing requests against the Contentful API.
+/// Client object for performing requests against the Contentful Delivery and Preview APIs.
 open class Client {
 
+    /// The configuration for this instance of the client.
     public let clientConfiguration: ClientConfiguration
 
     /// The identifier of the space this Client is set to interface with.
@@ -42,12 +43,13 @@ open class Client {
     /// the fields dictionary of entries and assets.
     public private(set) var jsonDecoder: JSONDecoder
 
-    /**
-     The persistence integration which will receive delegate messages from the `Client` when new
-     `Entry` and `Asset` objects are created from data being sent over the network. Currently, these
-     messages are only sent for `client.initialSync()` and `client.nextSync`. The relevant
-     persistence integration lives at <https://github.com/contentful/contentful-persistence.swift>.
-     */
+    // Single instance of the link resolver. It is used among multiple fetch* method calls.
+    private var linkResolver: LinkResolver
+
+    /// The persistence integration which will receive delegate messages from the `Client` when new
+    /// `Entry` and `Asset` objects are created from data being sent over the network. Currently, these
+    /// messages are only sent during the response hadling for `client.sync` calls. See a CoreData
+    /// persistence integration at <https://github.com/contentful/contentful-persistence.swift>.
     public var persistenceIntegration: PersistenceIntegration? {
         didSet {
             guard var headers = self.urlSession.configuration.httpAdditionalHeaders else {
@@ -67,24 +69,23 @@ open class Client {
 
     internal var urlSession: URLSession
 
-    fileprivate(set) var space: Space?
+    fileprivate(set) internal var space: Space?
 
     fileprivate var scheme: String { return clientConfiguration.secure ? "https": "http" }
 
-    /**
-     Initializes a new Contentful client instance
-
-     - Parameter spaceId: The space you want to perform requests against.
-     - Parameter accessToken: The access token used for authorization.
-     - Parameter clientConfiguration: Custom Configuration of the Client.
-     - Parameter sessionConfiguration: The configuration for the URLSession. Note that HTTP headers will be overwritten
-     interally by the SDK so that requests can be authorized correctly.
-     - Parameter persistenceIntegration: An object conforming to the `PersistenceIntegration` protocol
-     which will receive messages about created/deleted Resources when calling `sync()` methods.
-     - Parameter contentModel: the ContentModel which references the model classes to map responses with Contentful entries 
-                               to when using the relevant fetch methods.
-     - Returns: An initialized client instance.
-     */
+    /// Initializes a new Contentful client instance
+    ///
+    /// - Parameters:
+    ///   - spaceId: The identifier of the space to perform requests against.
+    ///   - environmentId: The identifier of the space environment to perform requests against. Defaults to "master".
+    ///   - accessToken: The access token used for authorization.
+    ///   - host: The domain host to perform requests against. Defaults to `Host.delivery` i.e. `"cdn.contentful.com"`.
+    ///   - clientConfiguration: Custom Configuration of the Client. Uses `ClientConfiguration.default` if omitted.
+    ///   - sessionConfiguration: The configuration for the URLSession. Note that HTTP headers will be overwritten
+    ///         internally by the SDK so that requests can be authorized correctly.
+    ///   - persistenceIntegration: An object conforming to the `PersistenceIntegration` protocol
+    ///         which will receive messages about created/deleted Resources when calling `sync` methods.
+    ///   - contentTypeClasses: An array of `EntryDecodable` classes to map Contentful entries to when using the relevant fetch methods.
     public init(spaceId: String,
                 environmentId: String = "master",
                 accessToken: String,
@@ -116,7 +117,8 @@ open class Client {
             jsonDecoder.userInfo[.contentTypesContextKey] = contentTypes
         }
 
-        jsonDecoder.userInfo[.linkResolverContextKey] = LinkResolver()
+        linkResolver = LinkResolver()
+        jsonDecoder.userInfo[.linkResolverContextKey] = linkResolver
         self.persistenceIntegration = persistenceIntegration
         let contentfulHTTPHeaders = [
             "Authorization": "Bearer \(accessToken)",
@@ -130,12 +132,12 @@ open class Client {
         urlSession.invalidateAndCancel()
     }
 
-    /// Returns an optional URL for the specified endpoint with it's query paramaters.
+    /// Returns an optional URL for the specified endpoint with its query paramaters.
     ///
     /// - Parameters:
-    ///   - endpoint: The delivery/preview API endpoint
+    ///   - endpoint: The delivery/preview API endpoint.
     ///   - parameters: A dictionary of query parameters which be appended at the end of the URL in a URL safe format.
-    /// - Returns: A valid URL for the Content delivery or preview API, or nil if the URL could not be constructed.
+    /// - Returns: A valid URL for the Content Delivery or Preview API, or nil if the URL could not be constructed.
     public func url(endpoint: Endpoint, parameters: [String: String]? = nil) -> URL {
         var components: URLComponents
 
@@ -146,12 +148,12 @@ open class Client {
             components = URLComponents(string: "\(scheme)://\(host)/spaces/\(spaceId)/environments/\(environmentId)/\(endpoint.pathComponent)")!
         }
 
-        let queryItems: [URLQueryItem]? = parameters?.map { (key, value) in
+        let queryItems: [URLQueryItem]? = parameters?.map { key, value in
             return URLQueryItem(name: key, value: value)
         }
         // Since Swift 4.2, the order of a dictionary's keys will vary accross executions so we must sort
         // the parameters so that the URL is consistent accross executions (so that all test recordings are found).
-        components.queryItems = queryItems?.sorted { (a, b) in
+        components.queryItems = queryItems?.sorted { a, b in
             return a.name > b.name
         }
 
@@ -159,13 +161,12 @@ open class Client {
         return url
     }
 
-    /// This is a generic fetch method which will decode the returned JSON from any URL and pass the
-    /// decoded result back in a completion handler wrapped in a `Result` instance. Use this method if you prefer
-    /// to specify your `Decodable` types and interfaces yourself rather than using the semantics provided by the SDK.
+    /// Fetches the JSON data at the specified URL, decoding the returned JSON and passing it back
+    /// as a `Result` in the completion handler.
     ///
     /// - Parameters:
-    ///   - url: The optional URL representing the endpoint & query parameters for returning JSON.
-    ///   - completion: The completion handler which takes in a result wrapping your decoded type.
+    ///   - url: The optional URL representing the endpoint with query parameters for returning JSON.
+    ///   - completion: The completion handler which takes in a `Result` wrapping a `Decodable` type.
     /// - Returns: Returns the URLSessionDataTask of the request which can be used for request cancellation.
     public func fetch<DecodableType: Decodable>(url: URL,
                                                 then completion: @escaping ResultsHandler<DecodableType>) -> URLSessionDataTask {
@@ -174,8 +175,8 @@ open class Client {
             switch result {
             case .success(let mappableData):
                 self.handleJSON(mappableData, completion)
-            case .error(let error):
-                completion(Result.error(error))
+            case .failure(let error):
+                completion(.failure(error))
             }
         }
 
@@ -189,9 +190,9 @@ open class Client {
                     case .success:
                         // Trigger chain with data we're currently interested in.
                         finishDataFetch(dataResult)
-                    case .error(let error):
+                    case .failure(let error):
                         // Return the current error.
-                        finishDataFetch(Result.error(error))
+                        finishDataFetch(.failure(error))
                     }
                 }
             }
@@ -199,13 +200,13 @@ open class Client {
         return task
     }
 
-    /// This is the base fetch method which all other fetch methods delegate to. Use it if you want to
-    /// get back raw `Data` objects and handle JSON parsing completely on your own.
+    /// This is the base fetch method which all other fetch methods delegate to. Use it directly to
+    /// get back raw `Data` objects and bypass the JSON parsing provided by the SDK.
     ///
     /// - Parameters:
-    ///   - url: The URL representing the endpoint & query parameters for returning JSON.
-    ///   - completion: The completion handler which takes in a Result wrapping the Data returned by the API.
-    /// - Returns: Returns the URLSessionDataTask of the request which can be used for request cancellation.
+    ///   - url: The URL representing the endpoint with query parameters for returning JSON.
+    ///   - completion: The completion handler which takes a `Result` wrapping the `Data` returned by the API.
+    /// - Returns: Returns the `URLSessionDataTask` of the request which can be used for request cancellation.
     public func fetch(url: URL, then completion: @escaping ResultsHandler<Data>) -> URLSessionDataTask {
         let task = urlSession.dataTask(with: url) { data, response, error in
             if let data = data {
@@ -220,15 +221,27 @@ open class Client {
                         if let apiError = APIError.error(with: self.jsonDecoder,
                                                          data: data,
                                                          statusCode: response.statusCode) {
-                            completion(Result.error(apiError))
+                            let errorMessage = """
+                            Errored: 'GET' (\(response.statusCode)) \(url.absoluteString)
+                            Message: \(apiError.message!)"
+                            """
+                            ContentfulLogger.log(.error, message: errorMessage)
+                            completion(.failure(apiError))
                         } else {
                             // In case there is an error returned by the API that has an unexpected format, return a custom error.
                             let errorMessage = "An API error was returned that the SDK was unable to parse"
+                            let logMessage = """
+                            Errored: 'GET' \(url.absoluteString). \(errorMessage)
+                            Message: \(errorMessage)
+                            """
+                            ContentfulLogger.log(.error, message: logMessage)
                             let error = SDKError.unparseableJSON(data: data, errorMessage: errorMessage)
-                            completion(Result.error(error))
+                            completion(.failure(error))
                         }
                         return
                     }
+                    let successMessage = "Success: 'GET' (\(response.statusCode)) \(url.absoluteString)"
+                    ContentfulLogger.log(.info, message: successMessage)
                 }
                 completion(Result.success(data))
                 return
@@ -236,14 +249,26 @@ open class Client {
 
             if let error = error {
                 // An extra check, just in case.
-                completion(Result.error(error))
+                let errorMessage = """
+                Errored: 'GET' \(url.absoluteString)
+                Message: \(error.localizedDescription)
+                """
+                ContentfulLogger.log(.error, message: errorMessage)
+                completion(.failure(error))
                 return
             }
 
             let sdkError = SDKError.invalidHTTPResponse(response: response)
-            completion(Result.error(sdkError))
+            let errorMessage = """
+            Errored: 'GET' \(url.absoluteString)
+            Message: Request returned invalid HTTP response: \(sdkError.localizedDescription)"
+            """
+            ContentfulLogger.log(.error, message: errorMessage)
+            completion(.failure(sdkError))
         }
 
+        let logMessage = "Request: 'GET' \(url.absoluteString)"
+        ContentfulLogger.log(.info, message: logMessage)
         task.resume()
         return task
     }
@@ -271,13 +296,14 @@ open class Client {
         if let timeUntilLimitReset = self.readRateLimitHeaderIfPresent(response: response) {
             // At this point, We know for sure that the type returned by the API can be mapped to an `APIError` instance.
             // Directly handle JSON and exit.
-            self.handleRateLimitJSON(data, timeUntilLimitReset: timeUntilLimitReset) { (_ result: Result<RateLimitError>) in
+            let statusCode = (response as! HTTPURLResponse).statusCode
+            self.handleRateLimitJSON(data, timeUntilLimitReset: timeUntilLimitReset, statusCode: statusCode) { (_ result: Result<RateLimitError, Error>) in
                 switch result {
                 case .success(let rateLimitError):
-                    completion(Result.error(rateLimitError))
-                case .error(let auxillaryError):
+                    completion(.failure(rateLimitError))
+                case .failure(let auxillaryError):
                     // We should never get here, but we'll bubble up what should be a `SDKError.unparseableJSON` error just in case.
-                    completion(Result.error(auxillaryError))
+                    completion(.failure(auxillaryError))
                 }
             }
             return true
@@ -285,68 +311,91 @@ open class Client {
         return false
     }
 
-    fileprivate func handleRateLimitJSON(_ data: Data, timeUntilLimitReset: Int, _ completion: ResultsHandler<RateLimitError>) {
+    fileprivate func handleRateLimitJSON(_ data: Data, timeUntilLimitReset: Int, statusCode: Int, _ completion: ResultsHandler<RateLimitError>) {
+
             guard let rateLimitError = try? jsonDecoder.decode(RateLimitError.self, from: data) else {
-                completion(Result.error(SDKError.unparseableJSON(data: data, errorMessage: "SDK unable to parse RateLimitError payload")))
+                completion(.failure(SDKError.unparseableJSON(data: data, errorMessage: "SDK unable to parse RateLimitError payload")))
                 return
             }
+            rateLimitError.statusCode = statusCode
             rateLimitError.timeBeforeLimitReset = timeUntilLimitReset
 
+            let errorMessage = """
+            Errored: Rate Limit Error
+            Message: \(rateLimitError)"
+            """
+            ContentfulLogger.log(.error, message: errorMessage)
             // In this case, .success means that a RateLimitError was successfully initialized.
             completion(Result.success(rateLimitError))
     }
 
-    fileprivate func handleJSON<DecodableType: Decodable>(_ data: Data, _ completion: ResultsHandler<DecodableType>) {
-        do {
-            let decodedObject = try jsonDecoder.decode(DecodableType.self, from: data)
-            completion(Result.success(decodedObject))
-        } catch {
-            completion(Result.error(SDKError.unparseableJSON(data: data, errorMessage: "The SDK was unable to parse the JSON: \(error)")))
-        }
+    fileprivate func handleJSON<DecodableType: Decodable>(_ data: Data, _ completion: @escaping ResultsHandler<DecodableType>) {
+        var decodedObject: DecodableType?
+
+        // Workaround: Sometimes a race condition was noticable when the object has been decoded but
+        // links were not fully resolved yet in the fetched objects. The link resolver calls the completion
+        // block of this method when it finished resolving all the links (meaning, all the callbacks have been
+        // called).
+        linkResolver.perform(decoding: { [weak self] in
+            guard let self = self else { return }
+
+            do {
+                decodedObject = try self.jsonDecoder.decode(DecodableType.self, from: data)
+            } catch let error {
+                let sdkError = SDKError.unparseableJSON(data: data, errorMessage: "\(error)")
+                ContentfulLogger.log(.error, message: sdkError.message)
+                completion(.failure(sdkError))
+            }
+        }, completion: {
+            // Make sure decoded object is not nil before calling success completion block.
+            if let decodedObject = decodedObject {
+                completion(.success(decodedObject))
+            } else {
+                completion(.failure(SDKError.unparseableJSON(data: data, errorMessage: "Unknown error occured during decoding.")))
+            }
+        })
     }
 }
 
 extension Client {
 
-    /**
-     Fetch all the locales belonging to the environment that was configured with the client.
-
-     - Parameter completion: A handler being called on completion of the request.
-     - Returns: The data task being used, enables cancellation of requests.
-     */
-    @discardableResult public func fetchLocales(then completion: @escaping ResultsHandler<ArrayResponse<Contentful.Locale>>) -> URLSessionDataTask {
+    /// Fetches all the locales belonging to the space environment that this client is configured to interface with.
+    ///
+    /// - Parameters:
+    ///   - completion: A handler being called on completion of the request.
+    /// - Returns: Returns the `URLSessionDataTask` of the request which can be used for request cancellation.
+    @discardableResult
+    public func fetchLocales(then completion: @escaping ResultsHandler<HomogeneousArrayResponse<Contentful.Locale>>) -> URLSessionDataTask {
 
         // The robust thing to do would be to fetch all pages of the `/locales` endpoint, however, pagination is not supported
         // at the moment. We also are not expecting any consumers to have > 1000 locales as Contentful subscriptions do not allow that.
         let query = ResourceQuery.limit(to: QueryConstants.maxLimit)
         let url = self.url(endpoint: .locales, parameters: query.parameters)
-        return fetch(url: url) { (result: Result<ArrayResponse<Contentful.Locale>>) in
+        return fetch(url: url) { (result: Result<HomogeneousArrayResponse<Contentful.Locale>, Error>) in
+            switch result {
+            case .success(let localesArray):
+                let locales = localesArray.items
+                self.locales = locales
 
-            if let error = result.error {
-                completion(Result.error(error))
-                return
-            }
-            guard let locales = result.value?.items else {
-                let error = SDKError.localeHandlingError(message: "Unable to parse locales from JSON")
-                completion(Result.error(error))
-                return
-            }
-            self.locales = locales
+                let localeCodes = locales.map { $0.code }
+                self.persistenceIntegration?.update(localeCodes: localeCodes)
 
-            let localeCodes = locales.map { $0.code }
-            self.persistenceIntegration?.update(localeCodes: localeCodes)
+                guard let localizationContext = LocalizationContext(locales: locales) else {
+                    let error = SDKError.localeHandlingError(message: "Locale with default == true not found in Environment!")
+                    completion(.failure(error))
+                    return
+                }
+                self.localizationContext = localizationContext
+                completion(result)
 
-            guard let localizationContext = LocalizationContext(locales: locales) else {
-                let error = SDKError.localeHandlingError(message: "Locale with default == true not found in Environment!")
-                completion(Result.error(error))
-                return
+            case .failure(let error):
+                completion(.failure(error))
             }
-            self.localizationContext = localizationContext
-            completion(result)
         }
     }
 
-    @discardableResult internal func fetchLocalesIfNecessary(then completion: @escaping ResultsHandler<Array<Contentful.Locale>>) -> URLSessionDataTask? {
+    @discardableResult
+    internal func fetchLocalesIfNecessary(then completion: @escaping ResultsHandler<Array<Contentful.Locale>>) -> URLSessionDataTask? {
         if let locales = self.locales {
             let localeCodes = locales.map { $0.code }
             persistenceIntegration?.update(localeCodes: localeCodes)
@@ -357,8 +406,8 @@ extension Client {
             switch result {
             case .success(let localesResponse):
                 completion(Result.success(localesResponse.items))
-            case .error(let error):
-                completion(Result.error(error))
+            case .failure(let error):
+                completion(.failure(error))
             }
         }
     }
@@ -366,22 +415,27 @@ extension Client {
 
 extension Client {
 
-    /**
-     Fetch the space this client is constrained to.
-
-     - Parameter completion: A handler being called on completion of the request.
-
-     - Returns: The data task being used, which enables cancellation of requests, or `nil` if the.
-     Space was already cached locally
-     */
-    @discardableResult public func fetchSpace(then completion: @escaping ResultsHandler<Space>) -> URLSessionDataTask? {
+    /// Fetches the space this client is configured to interface with.
+    ///
+    /// - Parameters:
+    ///   - completion: A handler being called on completion of the request.
+    /// - Returns: Returns the `URLSessionDataTask` of the request which can be used for request cancellation, or `nil` if the Space was already cached locally
+    @discardableResult
+    public func fetchSpace(then completion: @escaping ResultsHandler<Space>) -> URLSessionDataTask? {
         // Attempt to pull from cache first.
         if let space = self.space {
-            completion(Result.success(space))
+            completion(.success(space))
             return nil
         }
-        return fetch(url: url(endpoint: .spaces)) { (result: Result<Space>) in
-            self.space = result.value
+
+        return fetch(url: url(endpoint: .spaces)) { (result: Result<Space, Error>) in
+            switch result {
+            case .success(let space):
+                self.space = space
+            default:
+                break
+            }
+
             completion(result)
         }
     }
@@ -389,22 +443,21 @@ extension Client {
 
 extension Client {
 
-    /**
-     Fetch the underlying media file as `Data`.
-
-     - Parameter asset: The `Asset` which contains the relevant media file.
-     - Parameter imageOptions: An optional array of options for server side manipulations.
-     - Returns: The `Observable` for the `Data` result.
-
-     */
-    @discardableResult public func fetchData(for asset: AssetProtocol,
-                                             with imageOptions: [ImageOption] = [],
-                                             then completion: @escaping ResultsHandler<Data>) -> URLSessionDataTask? {
+    /// Fetches the underlying media file of a Contentful asset as `Data`.
+    ///
+    /// - Parameters:
+    ///   - asset: The instance of `AssetProtocol` which has the URL for media file.
+    ///   - imageOptions: An optional array of options for server side manipulations of image files.
+    /// - Returns: Returns the URLSessionDataTask of the request which can be used for request cancellation.
+    @discardableResult
+    public func fetchData(for asset: AssetProtocol,
+                          with imageOptions: [ImageOption] = [],
+                          then completion: @escaping ResultsHandler<Data>) -> URLSessionDataTask? {
         do {
             let url = try asset.url(with: imageOptions)
             return fetch(url: url, then: completion)
         } catch let error {
-            completion(Result.error(error))
+            completion(.failure(error))
             return nil
         }
     }
@@ -412,38 +465,51 @@ extension Client {
 
 extension Client {
 
-    /// Fetch a resource by id: available resource types that match this functions constraints are:
+    /// Fetches a resource by id: available resource types that match this function's constraints are:
     /// `Space`, `Asset`, `ContentType`, `Entry`, or any of your own types conforming to `EntryDecodable` or `AssetDecodable`.
     ///
     /// - Parameters:
     ///   - resourceType: A reference to the Swift type which conforms to `Decodable & EndpointAccessible`
     ///   - id: The identifier of the resource which should be fetched.
+    ///   - include: Specifies the level of includes to be resolved. Optional, because we leave it to the server
+    ///     to decide the optimal default value: [Retrieval of linked items]
     ///   - completion: The handler being called on completion of the request with a Result wrapping your decoded type or an error.
-    /// - Returns: A reference to the URLSessionDataTask to enable cancelling the request.
-    @discardableResult public func fetch<ResourceType>(_ resourceType: ResourceType.Type,
-                                                       id: String,
-                                                       then completion: @escaping ResultsHandler<ResourceType>) -> URLSessionDataTask
+    /// - Returns: Returns the `URLSessionDataTask` of the request which can be used for request cancellation.
+    ///
+    /// [Retrieval of linked items]: https://www.contentful.com/developers/docs/references/content-delivery-api/#/reference/links/retrieval-of-linked-items
+    @discardableResult
+    public func fetch<ResourceType>(_ resourceType: ResourceType.Type,
+                                    id: String,
+                                    include includesLevel: UInt? = nil,
+                                    then completion: @escaping ResultsHandler<ResourceType>) -> URLSessionDataTask
         where ResourceType: Decodable & EndpointAccessible {
 
-            // If the resource is not an entry, then don't worry about fetching with includes.
-            if resourceType != EntryDecodable.self && resourceType != Entry.self {
+            // If the resource is not an entry, includes are not supported.
+            if !(resourceType is EntryDecodable.Type) && resourceType != Entry.self {
                 var url = self.url(endpoint: ResourceType.endpoint)
                 url.appendPathComponent(id)
                 return fetch(url: url, then: completion)
             }
 
-            let fetchCompletion: (Result<ArrayResponse<ResourceType>>) -> Void = { result in
+            // Before `completion` is called, either the first item is extracted, and
+            // sent as `.success`, or an `.error` is sent.
+            let fetchCompletion: (Result<HomogeneousArrayResponse<ResourceType>, Error>) -> Void = { result in
                 switch result {
-                case .success(let response) where response.items.first != nil:
-                    completion(Result.success(response.items.first!))
-                case .error(let error):
-                    completion(Result.error(error))
-                default:
-                    completion(Result.error(SDKError.noResourceFoundFor(id: id)))
+                case .success(let response):
+                    guard let firstItem = response.items.first else {
+                        completion(.failure(SDKError.noResourceFoundFor(id: id)))
+                        break
+                    }
+                    completion(.success(firstItem))
+                case .failure(let error):
+                    completion(.failure(error))
                 }
             }
 
-            let query = ResourceQuery.where(sys: .id, .equals(id))
+            var query = ResourceQuery.where(sys: .id, .equals(id))
+            if let includesLevel = includesLevel {
+                query = query.include(includesLevel)
+            }
             return fetch(url: url(endpoint: ResourceType.endpoint, parameters: query.parameters), then: fetchCompletion)
     }
 
@@ -452,11 +518,12 @@ extension Client {
     /// - Parameters:
     ///   - resourceType: A reference to the concrete resource class which conforms to `Decodable & EndpointAccessible & ResourceQueryable`
     ///   - query: The query of type `ResourceType.QueryType` to be used to match results againtst.
-    ///   - completion: The handler being called on completion of the request with a Result wrapping an ArrayResponse of decoded type or an error.
-    /// - Returns: A reference to the URLSessionDataTask to enable cancelling the request.
-    @discardableResult public func fetchArray<ResourceType, QueryType>(of resourceType: ResourceType.Type,
-                                                                       matching query: QueryType? = nil,
-                                                                       then completion: @escaping ResultsHandler<ArrayResponse<ResourceType>>) -> URLSessionDataTask
+    ///   - completion: The handler being called on completion of the request with a `Result` wrapping an `ArrayResponse` of decoded type.
+    /// - Returns: Returns the` URLSessionDataTask` of the request which can be used for request cancellation.
+    @discardableResult
+    public func fetchArray<ResourceType, QueryType>(of resourceType: ResourceType.Type,
+                                                    matching query: QueryType? = nil,
+                                                    then completion: @escaping ResultsHandler<HomogeneousArrayResponse<ResourceType>>) -> URLSessionDataTask
         where ResourceType: ResourceQueryable, QueryType == ResourceType.QueryType {
             return fetch(url: url(endpoint: ResourceType.endpoint, parameters: query?.parameters ?? [:]), then: completion)
     }
@@ -464,13 +531,14 @@ extension Client {
     /// This is a generic fetch method which can be used to fetch collections of `EntryDecodable` instances of your own definition.
     ///
     /// - Parameters:
-    ///   - entryType: A reference to the concrete Swift class conforming to `EntryDecodable` to be returned in the ArrayResponse.
+    ///   - entryType: A reference to a concrete Swift class conforming to `EntryDecodable` that will be fetched.
     ///   - query: The `QueryOn<EntryType>` to be used to match results againtst.
-    ///   - completion: The handler being called on completion of the request with a Result wrapping an ArrayResponse of decoded type or an error.
-    /// - Returns: A reference to the URLSessionDataTask to enable cancelling the request.
-    @discardableResult public func fetchArray<EntryType>(of entryType: EntryType.Type,
-                                                         matching query: QueryOn<EntryType> = QueryOn<EntryType>(),
-                                                         then completion: @escaping ResultsHandler<ArrayResponse<EntryType>>) -> URLSessionDataTask {
+    ///   - completion: The handler being called on completion of the request with a `Result` wrapping an `ArrayResponse`.
+    /// - Returns: Returns the `URLSessionDataTask` of the request which can be used for request cancellation.
+    @discardableResult
+    public func fetchArray<EntryType>(of entryType: EntryType.Type,
+                                      matching query: QueryOn<EntryType> = QueryOn<EntryType>(),
+                                      then completion: @escaping ResultsHandler<HomogeneousArrayResponse<EntryType>>) -> URLSessionDataTask {
         let url = self.url(endpoint: .entries, parameters: query.parameters)
         return fetch(url: url, then: completion)
     }
@@ -481,9 +549,10 @@ extension Client {
     /// - Parameters:
     ///   - query: The `Query` with which to match the results against.
     ///   - completion: The handler being called on completion of the request with a Result wrapping your decoded type or an error.
-    /// - Returns: A reference to the URLSessionDataTask to enable cancelling the request.
-    @discardableResult public func fetchArray(matching query: Query? = nil,
-                                              then completion: @escaping ResultsHandler<MixedArrayResponse>) -> URLSessionDataTask {
+    /// - Returns: Returns the `URLSessionDataTask` of the request which can be used for request cancellation.
+    @discardableResult
+    public func fetchArray(matching query: Query? = nil,
+                          then completion: @escaping ResultsHandler<HeterogeneousArrayResponse>) -> URLSessionDataTask {
         let url = self.url(endpoint: .entries, parameters: query?.parameters ?? [:])
         return fetch(url: url, then: completion)
     }
@@ -493,48 +562,50 @@ extension Client {
 
 extension Client {
 
-    /**
-     Perform a synchronization operation, updating the passed in `SyncSpace` object with
-     latest content from Contentful. If the passed in `SyncSpace` is a new empty instance with an empty
-     sync token, a full synchronization will be done.
-
-     Calling this will mutate passed in SyncSpace and also return a reference to itself to the completion
-     handler in order to allow chaining of operations.
-
-     - Parameter syncSpace: the relevant `SyncSpace` to perform the subsequent sync on. Defaults to a new empty instance of sync space.
-     - Parameter syncableTypes: The types that can be synchronized.
-     - Parameter completion: A handler which will be called on completion of the operation
-
-     - Returns: The data task being used, enables cancellation of requests.
-     */
-
-    @discardableResult public func sync(for syncSpace: SyncSpace = SyncSpace(),
-                                        syncableTypes: SyncSpace.SyncableTypes = .all,
-                                        then completion: @escaping ResultsHandler<SyncSpace>) -> URLSessionDataTask? {
+    /// Performs a synchronization operation, updating the passed in `SyncSpace` object with
+    /// latest content from Contentful. If the passed in `SyncSpace` is a new empty instance with an empty
+    /// sync token, a full synchronization will be done.
+    /// Calling this will mutate passed in `SyncSpace `and also pass back  a reference to it in the completion
+    /// handler in order to allow chaining of operations.
+    ///
+    /// - Parameters:
+    ///   - syncSpace: The relevant `SyncSpace` to perform the subsequent sync on. Defaults to a new empty instance of `SyncSpace`.
+    ///   - syncableTypes: The types that can be synchronized.
+    ///   - completion: A handler which will be called on completion of the operation
+    /// - Returns: Returns the `URLSessionDataTask` of the request which can be used for request cancellation.
+    @discardableResult
+    public func sync(for syncSpace: SyncSpace = SyncSpace(),
+                     syncableTypes: SyncSpace.SyncableTypes = .all,
+                     then completion: @escaping ResultsHandler<SyncSpace>) -> URLSessionDataTask? {
 
         // Preview mode only supports `initialSync` not `nextSync`. The only reason `nextSync` should
         // be called while in preview mode, is internally by the SDK to finish a multiple page sync.
         // We are doing a multi page sync only when syncSpace.hasMorePages is true.
         if !syncSpace.syncToken.isEmpty && host == Host.preview && syncSpace.hasMorePages == false {
-            completion(Result.error(SDKError.previewAPIDoesNotSupportSync()))
+            completion(.failure(SDKError.previewAPIDoesNotSupportSync))
             return nil
         }
 
-        let parameters = syncableTypes.parameters + syncSpace.parameters
-        return fetch(url: url(endpoint: .sync, parameters: parameters)) { (result: Result<SyncSpace>) in
+        // Send only sync space parameters when accessing another page.
+        let parameters: [String: String]
+        if syncSpace.hasMorePages {
+            parameters = syncSpace.parameters
+        } else {
+            parameters = syncableTypes.parameters + syncSpace.parameters
+        }
 
-            var mutableResult = result
-            if case .success(let newSyncSpace) = result {
-                // On each new page, update the original sync space and forward the diffs to the
-                // persistence integration.
+        return fetch(url: url(endpoint: .sync, parameters: parameters)) { (result: Result<SyncSpace, Error>) in
+            switch result {
+            case .success(let newSyncSpace):
                 syncSpace.updateWithDiffs(from: newSyncSpace)
                 self.persistenceIntegration?.update(with: newSyncSpace)
-                mutableResult = .success(syncSpace)
-            }
-            if let syncSpace = result.value, syncSpace.hasMorePages == true {
-                self.sync(for: syncSpace, syncableTypes: syncableTypes, then: completion)
-            } else {
-                completion(mutableResult)
+                if newSyncSpace.hasMorePages {
+                    self.sync(for: syncSpace, syncableTypes: syncableTypes, then: completion)
+                } else {
+                    completion(.success(syncSpace))
+                }
+            case .failure(let error):
+                completion(.failure(error))
             }
         }
     }

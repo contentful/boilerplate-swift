@@ -8,21 +8,19 @@
 
 import Foundation
 
-/**
- Classes conforming to this protocol can be passed into your Client instance so that fetch methods
- asynchronously returning MappedCollection can be used and classes of your own definition can be returned.
-
- It's important to note that there is no special handling of locales so if using the locale=* query parameter,
- you will need to implement the special handing in your `init(from decoder: Decoder) throws` initializer for your class.
-
- Example:
-
- ```
- func fetchMappedEntries(with query: Query<Cat>,
- then completion: @escaping ResultsHandler<MappedArrayResponse<Cat>>) -> URLSessionDataTask?
- ```
- */
-public protocol EntryDecodable: FlatResource, Decodable, EndpointAccessible {
+/// Classes conforming to this protocol can be passed into your `Client` instance so that fetch methods
+/// returning may decode the JSON to your own classes before returning them in async callbacks.
+///
+/// It's important to note that there is no special handling of locales so if using the locale=* query parameter,
+/// you will need to implement the special handing in your `init(from decoder: Decoder) throws` initializer for your class.
+///
+/// Example:
+///
+/// ```
+/// func fetchArray(of: Cat.self, matching: QueryON<Cat>,
+/// then completion: @escaping ResultsHandler<MappedArrayResponse<Cat>>) -> URLSessionDataTask?
+/// ```
+public protocol EntryDecodable: AnyObject, FlatResource, Decodable, EndpointAccessible {
     /// The identifier of the Contentful content type that will map to this type of `EntryPersistable`
     static var contentTypeId: ContentTypeId { get }
 }
@@ -33,7 +31,7 @@ public extension EndpointAccessible where Self: EntryDecodable {
     }
 }
 
-/// An Entry represents a typed collection of data in Contentful
+/// An `Entry` represents a typed collection of content, structured via fields, in Contentful.
 public class Entry: LocalizableResource {
 
     /// A convenience subscript operator to access the fields dictionary directly and return a String?
@@ -48,6 +46,26 @@ public class Entry: LocalizableResource {
 
     // MARK: Internal
 
+    /**
+     Tries to resolve `Entry`s and `Asset`s which `self` links to.
+
+     Link resolution is currently _NOT_ recursive. Only one level of links are resolved to
+     `Entry`s or `Asset`s. Multi-level link resolution can be emulated by calling this
+     method on every `Entry` known to the caller.
+
+     E.g. `ArrayResponse` has `includes`, which should all be passed into this method to
+     potentially resolve all links in the `ArrayResponse`.
+
+     Links can remain unresolved for at least the following reasons:
+     - User narrowed the query to a certain type (e.g. `Entry`) when using the '/sync'
+       endpoint, such that the linked content is not in `includedEntries` or `includedAssets`.
+     - User set the `Query`'s `includesLevel` too low, such that the linked content is
+       not in `includedEntries` or `includedAssets`.
+
+     - parameters:
+         - includedEntries: `Entry` candidates that `self` _could_ link to.
+         - includedAssets: `Asset` candidates that `self` _could_ link to.
+    */
     internal func resolveLinks(against includedEntries: [Entry]?, and includedAssets: [Asset]?) {
         var localizableFields = [FieldName: [LocaleCode: Any]]()
 
@@ -55,44 +73,27 @@ public class Entry: LocalizableResource {
             // Mutable copy.
             var resolvedLocalizableFieldMap = localizableFieldMap
 
+            // Iterate all field values in this localizableField and resolve
+            // those that are of type Link.
             for (localeCode, fieldValueForLocaleCode) in localizableFieldMap {
 
-                if let unresolvedLink = fieldValueForLocaleCode as? Link, unresolvedLink.isResolved == false {
-                    let resolvedLink = unresolvedLink.resolve(against: includedEntries, and: includedAssets)
-                    // Technically it's possible that the link is still unresolved at this point:
-                    // for instance if a user specify type=Entry when using the '/sync' endpoint
+                switch fieldValueForLocaleCode {
+                case let oneToOneLink as Link where oneToOneLink.isResolved == false:
+                    let resolvedLink = oneToOneLink.resolve(against: includedEntries, and: includedAssets)
                     resolvedLocalizableFieldMap[localeCode] = resolvedLink
-                }
-
-                // Resolve one-to-many links. We need to account for links that might not have been
-                // resolved because of a multiple page sync so we will store a dictionary rather
-                // than a Swift object in the link body. The link will be resolved at a later time.
-
-                if let mixedLinks = fieldValueForLocaleCode as? [Link] {
-
-                    // The conversion from dictionary representation should only ever happen once
-                    let alreadyResolvedLinks = mixedLinks.filter { $0.isResolved == true }
-
-                    let unresolvedLinks = mixedLinks.filter { $0.isResolved == false }
-                    let newlyResolvedLinks = unresolvedLinks.map { $0.resolve(against: includedEntries, and: includedAssets) }
-
-                    let resolvedLinks = alreadyResolvedLinks + newlyResolvedLinks
-                    resolvedLocalizableFieldMap[localeCode] = resolvedLinks
-                }
-
-                // Resolve links for structured text fields.
-                if let value = fieldValueForLocaleCode as? Document {
-                    let embeddedEntryNodes: [Node] = value.content.map { node in
-                        if let blockNode = node as? EmbeddedEntryBlock {
-                            let resolvedTarget = blockNode.data.target.resolve(against: includedEntries, and: includedAssets)
-                            let newData = EmbeddedResourceData(resolvedTarget: resolvedTarget)
-                            let newBlockNode = EmbeddedEntryBlock(resolvedData: newData)
-                            return newBlockNode
+                case let oneToManyLinks as [Link]:
+                    let resolvedLinks = oneToManyLinks.map { link -> Link in
+                        if link.isResolved {
+                            return link
+                        } else {
+                            return link.resolve(against: includedEntries, and: includedAssets)
                         }
-                        return node
                     }
-                    let newDocument = Document(content: embeddedEntryNodes)
-                    resolvedLocalizableFieldMap[localeCode] = newDocument
+                    resolvedLocalizableFieldMap[localeCode] = resolvedLinks
+                case let recursiveNode as RecursiveNode:
+                    recursiveNode.resolveLinks(against: includedEntries, and: includedAssets)
+                default:
+                    continue
                 }
             }
             localizableFields[fieldName] = resolvedLocalizableFieldMap

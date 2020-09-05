@@ -36,7 +36,7 @@ class ViewController: UIViewController {
          * request failed.
          * Don't forget to delegate to the main thread if you are going to update the UI with the content!
          */
-        client.fetchSpace { [weak self] (result: Result<Space>) in
+        client.fetchSpace { [weak self] (result: Result<Space, Error>) in
 
             // This callback is where your network response will be handled
             // If you're going to update the UI...make sure to delegate back to the main thread.
@@ -45,7 +45,7 @@ class ViewController: UIViewController {
                 print("==================Printing space==================")
                 print("Fetched space with the name \(space.name)")
                 print("===============Done Printing space================")
-            case .error(let error):
+            case .failure(let error):
                 self?.handle(error: error)
             }
         }
@@ -54,7 +54,7 @@ class ViewController: UIViewController {
          * Similar to `fetchSpace` fetchEntries returns a Result, but this time containing a Contentful
          * Array of Entry objects.
          */
-        client.fetchArray(of: Entry.self, matching: Query.limit(to: 100)) { [weak self] (result: Result<ArrayResponse<Entry>>) in
+        client.fetchArray(of: Entry.self, matching: Query.limit(to: 100)) { [weak self] (result: Result<HomogeneousArrayResponse<Entry>, Error>) in
             switch result {
             case .success(let entries):
                 print("=================Printing Entries=================")
@@ -62,7 +62,7 @@ class ViewController: UIViewController {
                     print(entry.id)
                 }
                 print("==============Done Printing Entries===============")
-            case .error(let error):
+            case .failure(let error):
                 self?.handle(error: error)
             }
         }
